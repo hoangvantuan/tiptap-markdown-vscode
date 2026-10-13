@@ -1,4 +1,4 @@
-# TUI Markdown Editor
+# Tiptap Markdown Editor
 
 A VS Code custom editor that lets people edit `.md` files as rich text while the file on disk stays plain Markdown. The one promise that governs everything else: what the editor writes back must mean the same thing as what it read.
 

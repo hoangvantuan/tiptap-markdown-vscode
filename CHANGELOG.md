@@ -1,6 +1,14 @@
 # Changelog
 
-All notable changes to "TUI Markdown Editor" extension.
+All notable changes to "Tiptap Markdown Editor" (formerly "TUI Markdown Editor") extension.
+
+## [3.4.2] - 2026-10-13
+
+The extension is renamed to Tiptap Markdown Editor.
+
+### Changed
+
+- **The extension is now called "Tiptap Markdown Editor" (#160).** "TUI" reads as Terminal User Interface, which this editor is not. Only the displayed name and the GitHub repository (`hoangvantuan/tiptap-markdown-vscode`) changed: the Marketplace ID `tuanhv.tui-milkdown-vscode` and every `tuiMarkdown.*` setting stay as they are, so installs keep updating and saved settings keep working.
 
 ## [3.4.1] - 2026-10-02
 
