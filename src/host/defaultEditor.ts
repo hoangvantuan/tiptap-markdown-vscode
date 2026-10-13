@@ -3,17 +3,17 @@
  *
  * Background and intent:
  * In package.json, `contributes.customEditors` registers `tuiMarkdown.editor` with
- * priority "default". Consequently, `.md` files already open in TUI Markdown by
+ * priority "default". Consequently, `.md` files already open in Tiptap Markdown by
  * default in all workspaces without any explicit workspace configuration.
  *
  * The real need reported by users in #48 is the opposite direction: opting OUT
- * of TUI Markdown for a specific workspace so markdown files open in VS Code's
+ * of Tiptap Markdown for a specific workspace so markdown files open in VS Code's
  * built-in text editor instead (preventing interception of git diffs and allowing
  * raw editing).
  *
  * To serve both directions safely and avoid one-way traps, this command presents
  * a QuickPick with three explicit outcomes:
- * 1. "TUI Markdown (WYSIWYG)": writes "*.md": "tuiMarkdown.editor" to workspace.
+ * 1. "Tiptap Markdown (WYSIWYG)": writes "*.md": "tuiMarkdown.editor" to workspace.
  * 2. "Text editor (raw markdown)": writes "*.md": "default" to workspace.
  * 3. "Reset to the extension default": clears workspace associations for markdown.
  *
@@ -84,9 +84,9 @@ export function buildQuickPickOptions(
 ): EditorModeOption[] {
   return [
     {
-      label: "TUI Markdown (WYSIWYG)",
+      label: "Tiptap Markdown (WYSIWYG)",
       description: currentMode === "wysiwyg" ? "(current)" : undefined,
-      detail: "Always open markdown files with TUI Markdown in this workspace",
+      detail: "Always open markdown files with Tiptap Markdown in this workspace",
       mode: "wysiwyg",
     },
     {
