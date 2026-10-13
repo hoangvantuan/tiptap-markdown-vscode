@@ -2,7 +2,9 @@
 
 All notable changes to "Tiptap Markdown Editor" (formerly "TUI Markdown Editor") extension.
 
-## [Unreleased]
+## [3.4.2] - 2026-10-13
+
+The extension is renamed to Tiptap Markdown Editor.
 
 ### Changed
 
