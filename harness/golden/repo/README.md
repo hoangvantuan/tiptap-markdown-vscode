@@ -1,7 +1,7 @@
 <div align="center">
-  <img src="media/icon.png" width="96" alt="TUI Markdown Editor">
+  <img src="media/icon.png" width="96" alt="Tiptap Markdown Editor">
 
-# TUI Markdown Editor
+# Tiptap Markdown Editor
 
   *A beautiful WYSIWYG Markdown editor for VS Code, powered by Tiptap*
 
@@ -91,7 +91,7 @@ diffs there, run **Choose Default Editor for Markdown in this Workspace** from t
 Command Palette. It offers three choices, and each one is reversible from the same
 entry:
 
-- **TUI Markdown (WYSIWYG)**, the rich editor
+- **Tiptap Markdown (WYSIWYG)**, the rich editor
 - **Text editor (raw markdown)**, VS Code's built-in editor
 - **Reset to the extension default**, which removes the workspace setting again
 

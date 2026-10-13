@@ -34,7 +34,7 @@ describe("default-editor", () => {
   });
 
   describe("computeUpdatedAssociations", () => {
-    it("sets TUI Markdown editor for wysiwyg mode", () => {
+    it("sets Tiptap Markdown editor for wysiwyg mode", () => {
       const updated = computeUpdatedAssociations({}, "wysiwyg");
       assert.deepEqual(updated, {
         "*.md": "tuiMarkdown.editor",
@@ -122,7 +122,7 @@ describe("default-editor", () => {
       }
     });
 
-    it("writes TUI Markdown editor associations to .vscode/settings.json on disk", async () => {
+    it("writes Tiptap Markdown editor associations to .vscode/settings.json on disk", async () => {
       const origShowQuickPick = window.showQuickPick;
       window.showQuickPick = (async (items: any[]) => {
         return items.find((item) => item.mode === "wysiwyg");

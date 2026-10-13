@@ -6,7 +6,7 @@
 
 ### Issue tracker
 
-Issues live in GitHub Issues for `hoangvantuan/tui-milkdown-vscode`, managed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues for `hoangvantuan/tiptap-markdown-vscode`, managed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

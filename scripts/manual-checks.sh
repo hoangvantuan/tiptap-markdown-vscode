@@ -233,7 +233,7 @@ open_doc() {
 
 # ── Stage 0 is not a stage: make sure there is something to test against ───
 
-banner "Bản kiểm tay TUI Markdown 2.17"
+banner "Bản kiểm tay Tiptap Markdown 2.17"
 
 if [[ ! -f "$WS/test.md" ]]; then
   _clear
@@ -295,7 +295,7 @@ verdict A1B "A1b"
 # ── 2 ─────────────────────────────────────────────────────────────────────
 stage "A2: Ctrl/Cmd+Shift+M chạy từ CẢ HAI phía (#108)"
 note "Floor chỉ kiểm được hai lệnh CÓ ĐĂNG KÝ, không kiểm được phím tắt thật."
-step "Cmd+K Cmd+S để mở Keyboard Shortcuts, gõ 'TUI'."
+step "Cmd+K Cmd+S để mở Keyboard Shortcuts, gõ 'Tiptap'."
 step "Phải thấy CẢ HAI: 'View Source' và 'View Rich Text (WYSIWYG)', cùng Cmd+Shift+M."
 step "Quay lại test.md, bấm Cmd+Shift+M: phải sang source view."
 step "Đang ở source view, bấm Cmd+Shift+M lần nữa: phải quay lại WYSIWYG."
