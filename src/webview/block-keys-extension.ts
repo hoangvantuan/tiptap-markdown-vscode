@@ -25,12 +25,17 @@
  *   - HardBreak (StarterKit) binds Mod-Enter AND Shift-Enter to setHardBreak.
  *     This extension takes Mod-Enter from it; Shift-Enter stays a hard break.
  *   - Core's Keymap binds Mod-Enter to exitCode, and a code block relies on it.
- *     Mod-Enter in a code block returns false here so exitCode keeps it.
+ *     Mod-Enter in a code block returns false here so exitCode keeps it. Measured:
+ *     exitCode and insertParagraph give the same document and caret there, so no
+ *     seam case tells them apart; the carve-out only pins the upstream behaviour.
  *     Mod-Shift-Enter has no upstream binding, so it inserts before the block.
  *   - list-keymap-extension.ts owns Tab/Shift-Tab and shares no key with this.
  *
- * Priority is above the default so this runs before HardBreak's Mod-Enter. It
- * changes the document, so it is registered in buildMarkdownExtensions().
+ * Priority is above the default so this wins Mod-Enter over HardBreak whatever the
+ * registration order: with the default priority, registered before StarterKit, 5 of
+ * 30 seam cases changed; with it, 0. Registered after StarterKit the default also
+ * works, so the priority is the guard, not the mechanism. This changes the document,
+ * so it is registered in buildMarkdownExtensions().
  */
 import { Extension } from '@tiptap/core';
 import { Fragment } from '@tiptap/pm/model';
