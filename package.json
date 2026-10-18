@@ -92,7 +92,12 @@
         "tuiMarkdown.imageSaveFolder": {
           "type": "string",
           "default": "images",
-          "description": "Folder to save pasted images (relative to document). Use '.' for same folder as document."
+          "description": "Folder to save pasted images (relative to document). Use '.' for same folder as document. Accepts the variables listed under imageFileNameTemplate, e.g. images/${fileName}. Must stay inside the document folder; ${workspaceDir} is not supported."
+        },
+        "tuiMarkdown.imageFileNameTemplate": {
+          "type": "string",
+          "default": "image-${now}-${random}",
+          "markdownDescription": "File name for pasted and dropped images, without the extension (it is appended, or place `${ext}` yourself). Variables: `${fileName}` the document name without its extension; `${name}` the original file name of a dropped image without its extension; `${date}` today as YYYY-MM-DD; `${now}` milliseconds since the epoch; `${random}` six random base36 characters; `${uuid}` a random UUID; `${ext}` the image's extension, taken from its content, not from its label. The default `image-${now}-${random}` keeps the old naming. A name already taken gets `-2`, `-3`... instead of being overwritten."
         },
         "tuiMarkdown.autoRenameImages": {
           "type": "boolean",

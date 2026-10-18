@@ -13,6 +13,7 @@
  */
 import * as vscode from "vscode";
 import type { ConfigMessage } from "../shared/messages";
+import { DEFAULT_IMAGE_FILENAME_TEMPLATE, DEFAULT_IMAGE_SAVE_FOLDER } from "./imageName";
 
 function getFontSize(): number {
   const config = vscode.workspace.getConfiguration("tuiMarkdown");
@@ -39,6 +40,21 @@ function getHighlightCurrentLine(): boolean {
 function getAutoHideToolbar(): boolean {
   const config = vscode.workspace.getConfiguration("tuiMarkdown");
   return config.get<boolean>("autoHideToolbar", false);
+}
+
+/** `imageSaveFolder`, trimmed; blank falls back to the default. Holds `${...}` variables (#172). */
+export function getImageSaveFolder(): string {
+  const config = vscode.workspace.getConfiguration("tuiMarkdown");
+  return config.get<string>("imageSaveFolder", DEFAULT_IMAGE_SAVE_FOLDER)?.trim() || DEFAULT_IMAGE_SAVE_FOLDER;
+}
+
+/** `imageFileNameTemplate`, trimmed; blank falls back to the default (#172). */
+export function getImageFileNameTemplate(): string {
+  const config = vscode.workspace.getConfiguration("tuiMarkdown");
+  return (
+    config.get<string>("imageFileNameTemplate", DEFAULT_IMAGE_FILENAME_TEMPLATE)?.trim() ||
+    DEFAULT_IMAGE_FILENAME_TEMPLATE
+  );
 }
 
 function getListIndentation(document: vscode.TextDocument): {
