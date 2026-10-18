@@ -409,7 +409,8 @@ $ git status --short harness/
 (empty)
 ```
 
-Floor check (the Linux command from `.wave11-spec/COMMON.md`):
+Floor check (the Linux command from `.wave11-spec/COMMON.md`), run twice — once with
+the full output, once at the very end after the last commit:
 
 ```
 $ PUPPETEER_EXECUTABLE_PATH=$HOME/.cache/puppeteer-floor/chrome-nosandbox \
@@ -419,6 +420,10 @@ PASS  export produces a real PDF file — floor-export.pdf bytes=74660 magic=255
 …
 63 checks: 63 passed, 0 failed
 ```
+
+(the quoted `export produces a real PDF file` line is from the first run, which was
+captured in full; the final run, after the last commit, reported
+`63 checks: 63 passed, 0 failed` as well.)
 
 Fixtures and merge base:
 
