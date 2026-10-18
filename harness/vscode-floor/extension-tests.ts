@@ -37,6 +37,10 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
+// The association under test is the one the #122 command actually computes,
+// not a hand-written copy of it: a copy would keep passing after the command
+// went back to a bare `*.md`, which is the regression this check exists for.
+import { computeUpdatedAssociations } from "../../src/host/defaultEditor";
 
 const EXTENSION_ID = "tuanhv.tui-milkdown-vscode";
 const VIEW_TYPE = "tuiMarkdown.editor";
@@ -721,6 +725,165 @@ async function runDiffEditorCheck(uri: vscode.Uri): Promise<void> {
   }
 }
 
+/** Fast rounds in the #167 check, after the one slow control round. */
+const SAVE_FLUSH_FAST_ROUNDS = 6;
+
+/**
+ * Text typed less than 300 ms before the save keystroke must be in the file
+ * that keystroke wrote, and the document must not turn dirty again (#167).
+ *
+ * The runner (`driveSaveFlush` in run.mjs) types a per-round token and presses
+ * a REAL Ctrl+S (Cmd+S on darwin); this side reads the two things only the host
+ * can: the bytes on disk and `document.isDirty`. Without a flush on the save
+ * keystroke the webview still holds the token in its 300 ms debounce when the
+ * workbench saves, so the file misses it and the late `edit` then dirties the
+ * document again: both halves are asserted, because either alone has a way to
+ * look green (a save that never ran leaves the document clean when no edit was
+ * pending, and a dirty flag says nothing about which bytes reached the disk).
+ *
+ * Round 0 is the control: the runner waits past the debounce before pressing,
+ * so the edit has landed and only the keystroke is being tested. If it is red,
+ * the keystroke never reached the save command on this build and the fast
+ * rounds measure nothing; the two checks are reported apart for that reason.
+ *
+ * The document is saved between rounds and at the end, so every round starts
+ * clean and the FLOORPROBE phase after this one starts where it always did.
+ */
+async function runSaveFlushRounds(base: string, doc: vscode.TextDocument): Promise<void> {
+  const CONTROL_NAME = "the save keystroke in the webview reaches the save command (typed, waited past the debounce)";
+  const FAST_NAME = "text typed less than 300ms before the save keystroke is in the saved file and the document stays clean (#167)";
+  let saves = 0;
+  const listener = vscode.workspace.onDidSaveTextDocument((d) => {
+    if (d.uri.toString() === doc.uri.toString()) saves++;
+  });
+  const rounds: string[] = [];
+  let controlOk = false;
+  let fastPassed = 0;
+  let fastLost = 0;
+  try {
+    for (let i = 0; i <= SAVE_FLUSH_FAST_ROUNDS; i++) {
+      if (doc.isDirty) await doc.save();
+      await sleep(300);
+      const mode = i === 0 ? "slow" : "fast";
+      const savesBefore = saves;
+      const done = path.join(base, `phase-saveflush-${i}-done`);
+      fs.writeFileSync(path.join(base, `phase-saveflush-${i}`), mode, "utf8");
+      if (!(await waitForFile(done, 60000))) {
+        rounds.push(`r${i} ${mode}: runner never answered`);
+        break;
+      }
+      const result = JSON.parse(fs.readFileSync(done, "utf8")) as {
+        token?: string;
+        gapMs?: number;
+        inEditor?: boolean;
+        error?: string;
+      };
+      if (result.error || !result.token) {
+        rounds.push(`r${i} ${mode}: ${result.error ?? "no token"}`);
+        if (i > 0) fastLost++;
+        continue;
+      }
+      const onDisk = fs.readFileSync(doc.uri.fsPath, "utf8").includes(result.token);
+      const inDocument = doc.getText().includes(result.token);
+      const dirty = doc.isDirty;
+      const ok = onDisk && !dirty;
+      rounds.push(
+        `r${i} ${mode} gap=${result.gapMs}ms saves=${saves - savesBefore} onDisk=${onDisk} ` +
+          `dirty=${dirty} inDocument=${inDocument} inEditor=${result.inEditor}`,
+      );
+      if (i === 0) controlOk = ok && saves > savesBefore;
+      else if (ok) fastPassed++;
+      else fastLost++;
+    }
+  } catch (err) {
+    rounds.push(`threw: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`);
+  } finally {
+    fs.writeFileSync(path.join(base, "phase-saveflush-end"), "end", "utf8");
+    listener.dispose();
+    try {
+      if (doc.isDirty) await doc.save();
+    } catch {
+      /* the FLOORPROBE phase reports a document it cannot use */
+    }
+  }
+  record(CONTROL_NAME, controlOk, rounds[0] ?? "no round ran");
+  record(
+    FAST_NAME,
+    controlOk && fastPassed === SAVE_FLUSH_FAST_ROUNDS,
+    `lost ${fastLost}/${SAVE_FLUSH_FAST_ROUNDS}; ${rounds.slice(1).join(" | ")}` +
+      (controlOk ? "" : " (control round red, so these measure nothing)"),
+  );
+}
+
+/**
+ * The association `tuiMarkdown.useAsDefaultEditor` (#122) writes must not undo
+ * #169. Its keys name the same four schemes as `contributes.customEditors`
+ * because VS Code matches a key WITHOUT a `/` against the basename
+ * (`editorResolverService.ts`, 1.85), and a registered custom editor that a
+ * setting points at is resolved even when its selector does not match
+ * ("The user setting should be respected even if the editor doesn't specify
+ * that resource in package.json"). So a bare `*.md -> tuiMarkdown.editor` here
+ * would put a `cline:` markdown document back in this editor — measured, not
+ * assumed: that is what `cline-withAssoc=tuiMarkdown.editor` was before
+ * `defaultEditor.ts` was fixed.
+ *
+ * Both halves are measured in one run, because the second is the half a fix for
+ * the first can break: write the real association, and a virtual `cline:`
+ * document must land in the text editor while a `file:` document still lands
+ * here. A scheme-qualified key that quietly stopped matching `file:` would
+ * make the first half pass and the user lose the editor.
+ */
+async function runSchemeAssociationCheck(uri: vscode.Uri): Promise<void> {
+  const name = "the workspace association leaves other schemes alone and still opens file: markdown here";
+  // What `tuiMarkdown.useAsDefaultEditor` computes for "Tiptap Markdown
+  // (WYSIWYG)": the four schemes the manifest selects. Read from the command
+  // rather than restated here, so this check goes red if the command stops
+  // writing them.
+  const assoc = computeUpdatedAssociations({}, "wysiwyg") ?? {};
+  const provider = vscode.workspace.registerTextDocumentContentProvider("cline", {
+    provideTextDocumentContent: () => "# hello\n\nA cline virtual markdown document.\n",
+  });
+
+  const openAndRead = async (target: vscode.Uri): Promise<string> => {
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await sleep(400);
+    await vscode.commands.executeCommand("vscode.open", target);
+    await sleep(1500);
+    const input: any = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+    if (input && typeof input === "object" && typeof input.viewType === "string") {
+      return String(input.viewType);
+    }
+    return input && typeof input === "object" && input.uri ? "text" : "unknown";
+  };
+
+  const config = vscode.workspace.getConfiguration("workbench");
+  const original = config.inspect<Record<string, string>>("editorAssociations")?.workspaceValue;
+
+  try {
+    await config.update("editorAssociations", assoc, vscode.ConfigurationTarget.Workspace);
+    await sleep(800);
+
+    const cline = await openAndRead(vscode.Uri.parse("cline:/notes/readme.md"));
+    const local = await openAndRead(uri);
+
+    record(
+      name,
+      cline !== VIEW_TYPE && local === VIEW_TYPE,
+      `keys=[${Object.keys(assoc).join(" ")}] cline=${cline} file=${local}; ` +
+        "cline must be the text editor, file: must still be this one",
+    );
+  } catch (err) {
+    record(name, false, err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+  } finally {
+    provider.dispose();
+    try {
+      await config.update("editorAssociations", original, vscode.ConfigurationTarget.Workspace);
+    } catch {
+      /* the per-run workspace is thrown away anyway */
+    }
+  }
+}
+
 export async function run(): Promise<void> {
   const resultPath = process.env.TUI_FLOOR_RESULT;
   const samplePath = process.env.TUI_FLOOR_SAMPLE;
@@ -819,6 +982,11 @@ export async function run(): Promise<void> {
           `isDirty=${afterHold.isDirty} version=${afterHold.version}; ${transientDetail}`,
         );
       }
+
+      // #167: typed text then the save keystroke inside the debounce window.
+      // After the transient check, whose clean-document reading it would
+      // spoil, and before FLOORPROBE; it leaves the document saved and clean.
+      await runSaveFlushRounds(base, afterHold);
 
       // Captured AFTER the transient phase: on code where that phase dirties
       // the document, the version here is no longer 1, and the assertion below
@@ -939,6 +1107,10 @@ export async function run(): Promise<void> {
         await runDiffEditorCheck(uri);
 
         await runDefaultEditorAssociationCheck(uri);
+
+        // Also changes workspace settings and reopens the document, so it goes
+        // with the check above.
+        await runSchemeAssociationCheck(uri);
       }
     }
   } catch (err) {
