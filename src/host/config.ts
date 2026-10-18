@@ -68,9 +68,10 @@ const MAX_MATH_MACRO_LENGTH = 2000;
 function sanitizeMathMacros(raw: unknown): Record<string, string> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const out: Record<string, string> = {};
+  let kept = 0;
   let dropped = 0;
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-    if (Object.keys(out).length >= MAX_MATH_MACROS) {
+    if (kept >= MAX_MATH_MACROS) {
       dropped++;
       continue;
     }
@@ -79,6 +80,7 @@ function sanitizeMathMacros(raw: unknown): Record<string, string> {
       continue;
     }
     out[key] = value;
+    kept++;
   }
   if (dropped > 0) {
     console.warn(
