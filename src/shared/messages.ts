@@ -147,6 +147,12 @@ export interface ConfigMessage {
   autoHideToolbar: boolean;
   listIndentation?: { style: "space" | "tab"; size: number };
   tabSize?: number;
+  /**
+   * VS Code's own `markdown.math.macros`, as a `{"\\RR": "\\mathbb{R}"}`
+   * table. It belongs to the built-in markdown extension, not to us, and it is
+   * what makes a formula render the same here as in VS Code's preview.
+   */
+  mathMacros?: Record<string, string>;
 }
 
 export interface SavedThemeMessage {
