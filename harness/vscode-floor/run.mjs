@@ -3201,16 +3201,29 @@ async function driveWave11Checks(base, debugPort, sessions) {
           writeDone(i, { ok: false, error: "could not find other.md webview" });
           continue;
         }
-        const resetScrollTop = await other.evaluate(
+        const resetRes = await other.evaluate(
           "(() => {" +
             "window.dispatchEvent(new Event('wheel'));" +
             "const c = document.getElementById('editor-container');" +
-            "if (!c) return -1;" +
+            "const root = document.querySelector('.tiptap');" +
+            "const h1 = root ? root.querySelector('h1') : null;" +
+            "if (!c || !root || !h1) return { resetScrollTop: -1, resetCaret: null };" +
             "c.scrollTop = 0;" +
-            "return Math.round(c.scrollTop);" +
+            "root.focus({ preventScroll: true });" +
+            "const range = document.createRange();" +
+            "range.selectNodeContents(h1);" +
+            "range.collapse(true);" +
+            "const sel = window.getSelection();" +
+            "sel.removeAllRanges();" +
+            "sel.addRange(range);" +
+            "return {" +
+              "resetScrollTop: Math.round(c.scrollTop)," +
+              "resetCaret: h1.tagName + ':' + (h1.textContent || '').trim().slice(0, 20)," +
+            "};" +
           "})()",
         );
-        writeDone(i, { ok: true, resetScrollTop });
+        await sleep(100);
+        writeDone(i, { ok: true, ...resetRes });
       } else if (cmd.op === "clickAndReadOther") {
         const sampleWv = await findWebviewByHeading(debugPort, sessions, "Heading One", beat);
         if (!sampleWv) {
@@ -3266,15 +3279,22 @@ async function driveWave11Checks(base, debugPort, sessions) {
           "})()";
 
         let reading = null;
-        const pollMs = cmd.expectScroll ? 2500 : 800;
+        const pollMs = cmd.expectScroll ? 2500 : 1500;
         const pollStart = Date.now();
         while (Date.now() - pollStart < pollMs) {
           beat();
           reading = await otherWv.evaluate(readExpr);
           if (
             reading &&
-            (!cmd.expectScroll ||
-              (reading.scrollTop > 0 && reading.headingOffset >= 0 && reading.headingOffset <= 140))
+            (cmd.expectScroll
+              ? reading.scrollTop > 0 &&
+                reading.headingOffset >= 0 &&
+                reading.headingOffset <= 140 &&
+                typeof reading.caretBlock === "string" &&
+                reading.caretBlock.startsWith("H2:")
+              : reading.scrollTop === 0 &&
+                typeof reading.caretBlock === "string" &&
+                reading.caretBlock.startsWith("H1:"))
           ) {
             break;
           }

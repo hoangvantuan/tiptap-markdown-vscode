@@ -1084,29 +1084,40 @@ async function runWave11FloorChecks(base: string, uri: vscode.Uri): Promise<void
         expectScroll: false,
       });
 
+      const caretAtStart = (c: unknown): boolean =>
+        typeof c === "string" && c.startsWith("H1:") && c.includes("Other Document");
+      const caretInTargetHeading = (c: unknown): boolean =>
+        typeof c === "string" && c.startsWith("H2:") && c.includes("Some Heading");
+
       const plainOk =
-        Boolean(plain?.ok) && plain.scrollTop === 0 && plain.headingOffset > 300;
+        Boolean(plain?.ok) &&
+        plain.scrollTop === 0 &&
+        plain.headingOffset > 300 &&
+        caretAtStart(plain.caretBlock);
       const wikiOk =
         Boolean(wiki?.ok) &&
         wiki.scrollTop > 0 &&
         wiki.headingOffset >= 0 &&
         wiki.headingOffset <= 140 &&
+        caretInTargetHeading(wiki.caretBlock) &&
         !wikiDirty;
       const mdOk =
         Boolean(reset?.ok) &&
         reset.resetScrollTop === 0 &&
+        caretAtStart(reset.resetCaret) &&
         Boolean(md?.ok) &&
         md.scrollTop > 0 &&
         md.headingOffset >= 0 &&
         md.headingOffset <= 140 &&
+        caretInTargetHeading(md.caretBlock) &&
         !mdDirty;
 
       record(
         FRAGMENT_NAME,
         plainOk && wikiOk && mdOk,
-        `plain(scrollTop=${plain?.scrollTop},offset=${plain?.headingOffset}) ` +
+        `plain(scrollTop=${plain?.scrollTop},offset=${plain?.headingOffset},caret=${JSON.stringify(plain?.caretBlock)}) ` +
           `wiki(scrollTop=${wiki?.scrollTop},offset=${wiki?.headingOffset},caret=${JSON.stringify(wiki?.caretBlock)},dirty=${wikiDirty}) ` +
-          `md(reset=${reset?.resetScrollTop},scrollTop=${md?.scrollTop},offset=${md?.headingOffset},caret=${JSON.stringify(md?.caretBlock)},dirty=${mdDirty})` +
+          `md(reset=${reset?.resetScrollTop},resetCaret=${JSON.stringify(reset?.resetCaret)},scrollTop=${md?.scrollTop},offset=${md?.headingOffset},caret=${JSON.stringify(md?.caretBlock)},dirty=${mdDirty})` +
           (plain?.error ? ` plainErr=${plain.error}` : "") +
           (wiki?.error ? ` wikiErr=${wiki.error}` : "") +
           (md?.error ? ` mdErr=${md.error}` : ""),
