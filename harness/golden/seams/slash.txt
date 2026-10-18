@@ -16,6 +16,7 @@ one line per entry: [id] ok=... node=... md=...
 [alert-warning] ok=true node=alert(WARNING) md="> [!WARNING]\n"
 [alert-caution] ok=true node=alert(CAUTION) md="> [!CAUTION]\n"
 [image] ok=true node=paragraph md="![]()"
+[image-file] ok=true node=paragraph md=""
 [details] ok=true node=details md="<details>\n<summary></summary>\n\n\n\n</details>\n"
 [quote] ok=true node=blockquote md=">\n"
 [horizontal-rule] ok=true node=horizontalRule md="---\n"

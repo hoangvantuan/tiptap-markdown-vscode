@@ -41,6 +41,19 @@ function getAutoHideToolbar(): boolean {
   return config.get<boolean>("autoHideToolbar", false);
 }
 
+/**
+ * #174: download `https:` images in pasted HTML into the image folder. Off by
+ * default and read at the moment of the paste, never cached: the URLs come from
+ * whatever was on the clipboard, so the host must not reach the network on a
+ * stale answer.
+ */
+export function getDownloadRemoteImagesOnPaste(
+  document?: vscode.TextDocument,
+): boolean {
+  const config = vscode.workspace.getConfiguration("tuiMarkdown", document?.uri);
+  return config.get<boolean>("downloadRemoteImagesOnPaste", false) === true;
+}
+
 function getListIndentation(document: vscode.TextDocument): {
   indentation: { style: "space" | "tab"; size: number };
   tabSize: number;

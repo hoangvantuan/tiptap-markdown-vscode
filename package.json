@@ -104,6 +104,11 @@
           "default": true,
           "description": "Automatically delete image files when removed from markdown (moves to trash). Asks for confirmation first when another document still references the image."
         },
+        "tuiMarkdown.downloadRemoteImagesOnPaste": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "When pasting HTML that contains `https://` images, download them into the image folder and link the local copies. Off by default: the URLs come from the pasted content, and enabling this makes the extension request them. Images that fail to download (login required, too large, not an image) keep their remote URL."
+        },
         "tuiMarkdown.autoHideToolbar": {
           "type": "boolean",
           "default": false,

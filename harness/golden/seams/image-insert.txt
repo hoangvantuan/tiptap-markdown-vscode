@@ -1,1 +1,47 @@
-skeleton: no cases yet (#173, #174)
+image insert seam — markdown written for a picked or downloaded image
+each case: the document as it would be saved
+
+## picker-simple
+inserted: true
+saved: "Before![photo](images/photo.png)"
+
+## picker-space
+# the saved path has a space: the destination must be wrapped in <...>
+saved: "![my photo](<images/my photo.png>)"
+
+## picker-space-reload
+# the file holds <images/my photo.png>: it must translate for display, and back
+display: "![my photo](https://file+.vscode-resource.vscode-cdn.net/ws/images/my%20photo.png)\n"
+saved: "![my photo](<images/my photo.png>)"
+
+## picker-anchor-moves
+# cursor after "he" in "hello"; "XX" typed at the start while the dialog is open
+saved: "XXhe![pic](images/pic.png)llo"
+
+## picker-cancel
+# dialog cancelled: the host answers with no path
+anchor taken: true
+anchor taken again: false
+unchanged: true
+saved: "hello"
+
+## remote-downloaded
+# a.png downloaded, b.png failed (kept as its remote URL)
+before: "![a](https://cdn.example.com/a.png)\n\n![b](https://cdn.example.com/b.png)"
+replaced: 1
+after: "![a](images/image-1.png)\n\n![b](https://cdn.example.com/b.png)"
+
+## remote-duplicate-url
+replaced: 2
+after: "![one](images/image-2.png)\n\n![two](images/image-2.png)"
+
+## remote-exact-match
+# a.png?v=2 is a different URL from a.png: only the exact one is replaced
+replaced: 1
+after: "![x](https://cdn.example.com/a.png?v=2)\n\n![y](images/image-3.png)"
+
+## collect-urls
+# <img src> of pasted HTML: https only, in order, no repeats
+urls: ["https://a.example/1.png","https://b.example/4.jpg"]
+empty: []
+

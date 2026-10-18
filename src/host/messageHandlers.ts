@@ -38,6 +38,8 @@ import { handleExport } from "./exportDocument";
 import { openLocalFileInEditor } from "./openLocalFile";
 import { buildExcludePattern, getDocFolder } from "./workspaceFiles";
 import { findBacklinks } from "./backlinks";
+import { handlePickImage } from "./pickImage";
+import { handleDownloadRemoteImages } from "./downloadRemoteImages";
 
 /** What every handler is given: the session, and the provider-level things it cannot own. */
 export interface HandlerContext {
@@ -264,6 +266,19 @@ const handlers: HandlerTable = {
       type: "backlinks",
       links,
     });
+  },
+
+  // Not awaited, like `export`: a file dialog stays open as long as the user
+  // likes and must not hold up the next message. It answers with `imagePicked`
+  // from inside, on every outcome.
+  pickImage: (msg, ctx) => {
+    void handlePickImage(msg, ctx.document, ctx.webview);
+  },
+
+  // Not awaited either: downloads take as long as the servers take, and each
+  // image is reported as it lands. A no-op unless the setting is on (#174).
+  downloadRemoteImages: (msg, ctx) => {
+    void handleDownloadRemoteImages(msg, ctx.document, ctx.webview);
   },
 
 };

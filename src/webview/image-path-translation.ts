@@ -9,6 +9,7 @@
  * Node-safe: does not touch browser globals or VS Code webview API.
  */
 import type { Editor } from "@tiptap/core";
+import { wrapMarkdownDestination } from "../utils/markdown-destination";
 import {
   normalizeResourceUrl,
   extractVscodeResourcePath,
@@ -110,12 +111,19 @@ function replaceImagePaths(
   content: string,
   lookup: (url: string) => string | undefined,
 ): string {
-  // Replace in markdown images: ![alt](url) or ![alt](url "title")
+  // Replace in markdown images: ![alt](url), ![alt](url "title") and the
+  // angle-bracket form ![alt](<a path with spaces>). The bracketed form has to
+  // be matched as its own alternative: `[^)\s]+` stops at the first space and
+  // would look up `<images/my`, so a path with a space was never translated, and
+  // on the way out the relative path was written back bare, which is not a
+  // markdown destination (#173). The replacement is re-wrapped when it needs it.
   let result = content.replace(
-    /!\[([^\]]*)\]\(([^)\s]+)([^)]*)\)/g,
-    (match, alt, url, rest) => {
-      const replacement = lookup(url);
-      return replacement ? `![${alt}](${replacement}${rest})` : match;
+    /!\[([^\]]*)\]\((?:<([^<>\n]*)>|([^)\s<][^)\s]*))([^)]*)\)/g,
+    (match, alt, angled, bare, rest) => {
+      const replacement = lookup(angled ?? bare);
+      return replacement
+        ? `![${alt}](${wrapMarkdownDestination(replacement)}${rest})`
+        : match;
     }
   );
 

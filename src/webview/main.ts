@@ -60,7 +60,15 @@ import { installMarkdownTextEscape } from "./markdown-text-escape";
 import { escapeHtml } from "./file-search-utils";
 import { createBubbleMenuExtension } from "./bubble-menu";
 import { initLinkPopover, type LinkPopoverController } from "./link-popover";
-import { SlashCommand, setImageSrcProvider } from "./slash-command-plugin";
+import { SlashCommand, setImageSrcProvider, setImagePickProvider } from "./slash-command-plugin";
+import {
+  ImageInsertAnchors,
+  recordInsertAnchor,
+  takeInsertAnchor,
+  insertImageAt,
+  replaceRemoteImageSrc,
+  collectRemoteImageUrls,
+} from "./image-insert";
 import { EmojiSuggestion } from "./emoji-plugin";
 import { setupDragHandle } from "./drag-handle-plugin";
 import { ContentSync } from "./content-sync";
@@ -242,6 +250,16 @@ async function getBase64FromUrl(url: string): Promise<string | null> {
     console.error("[Image] Failed to fetch blob URL:", err);
     return null;
   }
+}
+
+/**
+ * Ask the host for an image from a file dialog (#173). The cursor position is
+ * recorded now, under a request id the host echoes back, because the dialog is
+ * asynchronous and the cursor may not be where it was when the reply arrives.
+ */
+function requestImagePick(ed: Editor): void {
+  const requestId = recordInsertAnchor(ed);
+  vscode.postMessage({ type: "pickImage", requestId });
 }
 
 function generateImageFilename(mimeType: string): string {
@@ -870,6 +888,7 @@ function initEditor(initialContent: string = ""): Editor | null {
         WikiLinkSuggestion,
         SlashCommand,
         EmojiSuggestion,
+        ImageInsertAnchors,
         createBubbleMenuExtension({ onOpenLink: () => linkPopover?.open() }),
         ...conditionalExtensions,
       ],
@@ -883,7 +902,20 @@ function initEditor(initialContent: string = ""): Editor | null {
       editorProps: {
         handlePaste(view, event) {
           const file = getImageFromClipboard(event.clipboardData);
-          if (!file) return false;
+          if (!file) {
+            // #174: report the https images in pasted HTML. This never consumes
+            // the paste (it returns false below, so the default HTML paste runs
+            // and the nodes keep their remote src). The host decides whether
+            // anything is downloaded; with the setting off it does nothing.
+            const html = event.clipboardData?.getData("text/html");
+            if (html) {
+              const urls = collectRemoteImageUrls(html);
+              if (urls.length > 0) {
+                vscode.postMessage({ type: "downloadRemoteImages", urls });
+              }
+            }
+            return false;
+          }
           event.preventDefault();
           processImagePaste(view, file);
           return true;
@@ -1052,6 +1084,7 @@ const TOOLBAR_COMMANDS: Record<string, (ed: Editor) => void> = {
   link: () => {
     linkPopover?.open();
   },
+  imageFromFile: (ed) => requestImagePick(ed),
 };
 
 // Update toolbar button active states based on editor selection
@@ -1819,6 +1852,44 @@ window.addEventListener("message", async (event) => {
         replaceInlineImage(message.blobUrl, message.savedPath, message.webviewUri);
       }
       break;
+    case "imagePicked":
+      if (typeof message.requestId === "string" && editor?.view) {
+        // Always take the anchor, so a cancelled dialog does not leak it.
+        const pos = takeInsertAnchor(editor, message.requestId);
+        if (
+          pos !== null &&
+          typeof message.savedPath === "string" &&
+          typeof message.webviewUri === "string"
+        ) {
+          const { savedPath, webviewUri } = message;
+          mutateImageMap((map) => {
+            map[savedPath] = webviewUri;
+          });
+          // An ordinary transaction: ContentSync posts the resulting edit.
+          insertImageAt(editor, pos, { src: webviewUri, alt: message.alt });
+        }
+      }
+      break;
+    case "remoteImagesDownloaded":
+      if (Array.isArray(message.images) && editor?.view) {
+        for (const img of message.images) {
+          if (
+            typeof img.url !== "string" ||
+            typeof img.savedPath !== "string" ||
+            typeof img.webviewUri !== "string"
+          ) {
+            continue;
+          }
+          const { savedPath, webviewUri } = img;
+          mutateImageMap((map) => {
+            map[savedPath] = webviewUri;
+          });
+          // Not under guardExtensionUpdate: this IS a user-visible document
+          // change, and it must reach the host through the normal edit path.
+          replaceRemoteImageSrc(editor, img.url, webviewUri);
+        }
+      }
+      break;
     case "imageUrlEditResponse":
       if (typeof message.editId === "string") {
         handleUrlEditResponse(message.editId, message.newUrl ?? null);
@@ -1939,6 +2010,7 @@ function init() {
     );
   }
   setImageSrcProvider(promptForImageUrl);
+  setImagePickProvider((ed) => requestImagePick(ed));
 
   initLightbox();
   setupReadingProgress();
