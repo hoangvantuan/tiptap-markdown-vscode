@@ -1169,6 +1169,173 @@ async function driveSurfaces(evaluate, session, sessions, beat = () => {}) {
     add("table context menu is operable from the keyboard and offers alignment", false, `threw: ${err.message}`);
   }
 
+  // --- Block keys: Alt+ArrowDown / Alt+ArrowUp / Mod+Enter (#178) -----------
+  // Unit and seam tests call the command functions directly on a headless
+  // Editor. Only a live workbench can prove:
+  //   1. Alt+ArrowDown / Alt+ArrowUp reach ProseMirror inside the webview
+  //      iframe without VS Code's own `editor.action.moveLinesDownAction`
+  //      intercepting them or touching the frontmatter textarea;
+  //   2. Mod+Enter runs `BlockKeysExtension` ahead of StarterKit's `HardBreak`
+  //      (which binds the same chord and would insert a `<br>` inside the
+  //      paragraph instead of a new sibling paragraph below it).
+  // Restores the block order and removes the inserted empty paragraph before
+  // returning so every later probe sees the document it expects.
+  try {
+    const isMac = process.platform === "darwin";
+    const modMask = isMac ? 4 : 2;
+    const modKey = isMac
+      ? { key: "Meta", code: "MetaLeft", windowsVirtualKeyCode: 91, nativeVirtualKeyCode: 91 }
+      : { key: "Control", code: "ControlLeft", windowsVirtualKeyCode: 17, nativeVirtualKeyCode: 17 };
+    const altKey = { key: "Alt", code: "AltLeft", windowsVirtualKeyCode: 18, nativeVirtualKeyCode: 18 };
+
+    const target = await evaluate("(() => {" +
+      "const p = document.querySelector('.tiptap > p');" +
+      "if (!p) return null;" +
+      "p.scrollIntoView({ block: 'center' });" +
+      "const r = p.getBoundingClientRect();" +
+      "return { x: Math.round(r.left + 8), y: Math.round(r.top + r.height / 2) };" +
+    "})()");
+    if (!target) throw new Error("no top-level paragraph for #178");
+    await pressAt(target.x, target.y);
+    await sleepShort();
+
+    const readBlocks = "(() => {" +
+      "const root = document.querySelector('.tiptap');" +
+      "if (!root) return null;" +
+      "const describe = (b) => {" +
+        "if (!b) return null;" +
+        "if ((b.matches && b.matches('.mermaid-preview')) || (b.querySelector && b.querySelector('.mermaid-preview'))) return b.tagName + ':MERMAID';" +
+        "return b.tagName + ':' + (b.textContent || '').trim().slice(0, 14);" +
+      "};" +
+      "const children = Array.from(root.querySelectorAll(':scope > *'));" +
+      "const blocks = children.map(describe);" +
+      "const sel = window.getSelection();" +
+      "const anchor = sel && sel.rangeCount ? sel.anchorNode : null;" +
+      "const anchorEl = anchor ? (anchor.nodeType === 1 ? anchor : anchor.parentElement) : null;" +
+      "const caretBlockEl = anchorEl && anchorEl.closest ? anchorEl.closest('.tiptap > *') : null;" +
+      "const firstP = root.querySelector(':scope > p');" +
+      "return {" +
+        "blocks," +
+        "order: blocks.join('|')," +
+        "count: blocks.length," +
+        "caretIndex: caretBlockEl ? children.indexOf(caretBlockEl) : -1," +
+        "caretTag: describe(caretBlockEl)," +
+        "brInFirstP: firstP ? firstP.querySelectorAll('br').length : -1," +
+        "frontmatter: (document.getElementById('metadata-textarea') || {}).value || ''," +
+      "};" +
+    "})()";
+
+    const placed = await evaluate("(() => {" +
+      "const root = document.querySelector('.tiptap');" +
+      "const p = root ? root.querySelector(':scope > p') : null;" +
+      "if (!root || !p) return 'no paragraph';" +
+      "root.focus();" +
+      "const range = document.createRange();" +
+      "range.selectNodeContents(p);" +
+      "range.collapse(false);" +
+      "const sel = window.getSelection();" +
+      "sel.removeAllRanges();" +
+      "sel.addRange(range);" +
+      "return 'ok';" +
+    "})()");
+    if (placed !== "ok") throw new Error("caret: " + placed);
+    await sleepShort();
+
+    const before = await evaluate(readBlocks);
+    if (!before || before.caretIndex < 0) throw new Error("could not read initial block state");
+    const sourceTag = before.blocks[before.caretIndex];
+    const neighbourTag = before.blocks[before.caretIndex + 1] ?? null;
+
+    // 1. Alt+ArrowDown moves the paragraph past its next sibling block.
+    await session.send("Input.dispatchKeyEvent", { type: "rawKeyDown", modifiers: 1, ...altKey });
+    await session.send("Input.dispatchKeyEvent", {
+      type: "rawKeyDown", modifiers: 1, key: "ArrowDown", code: "ArrowDown",
+      windowsVirtualKeyCode: 40, nativeVirtualKeyCode: 40,
+    });
+    await session.send("Input.dispatchKeyEvent", {
+      type: "keyUp", modifiers: 1, key: "ArrowDown", code: "ArrowDown",
+      windowsVirtualKeyCode: 40, nativeVirtualKeyCode: 40,
+    });
+    await session.send("Input.dispatchKeyEvent", { type: "keyUp", modifiers: 0, ...altKey });
+    await sleepShort();
+    const afterDown = await evaluate(readBlocks);
+
+    // 2. Alt+ArrowUp moves the paragraph back to its original index.
+    await session.send("Input.dispatchKeyEvent", { type: "rawKeyDown", modifiers: 1, ...altKey });
+    await session.send("Input.dispatchKeyEvent", {
+      type: "rawKeyDown", modifiers: 1, key: "ArrowUp", code: "ArrowUp",
+      windowsVirtualKeyCode: 38, nativeVirtualKeyCode: 38,
+    });
+    await session.send("Input.dispatchKeyEvent", {
+      type: "keyUp", modifiers: 1, key: "ArrowUp", code: "ArrowUp",
+      windowsVirtualKeyCode: 38, nativeVirtualKeyCode: 38,
+    });
+    await session.send("Input.dispatchKeyEvent", { type: "keyUp", modifiers: 0, ...altKey });
+    await sleepShort();
+    const afterUp = await evaluate(readBlocks);
+
+    // 3. Mod+Enter inserts an empty paragraph below without inserting a <br>.
+    await session.send("Input.dispatchKeyEvent", { type: "rawKeyDown", modifiers: modMask, ...modKey });
+    await session.send("Input.dispatchKeyEvent", {
+      type: "rawKeyDown", modifiers: modMask, key: "Enter", code: "Enter",
+      windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
+    });
+    await session.send("Input.dispatchKeyEvent", {
+      type: "keyUp", modifiers: modMask, key: "Enter", code: "Enter",
+      windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
+    });
+    await session.send("Input.dispatchKeyEvent", { type: "keyUp", modifiers: 0, ...modKey });
+    await sleepShort();
+    const afterInsert = await evaluate(readBlocks);
+
+    // 4. Backspace removes the empty paragraph (or, when broken, the <br>) so
+    //    the document returns to its pre-probe shape for the probes below.
+    for (const type of ["keyDown", "keyUp"]) {
+      await session.send("Input.dispatchKeyEvent", {
+        type, key: "Backspace", code: "Backspace",
+        windowsVirtualKeyCode: 8, nativeVirtualKeyCode: 8,
+      });
+    }
+    await sleepShort();
+    const afterRestore = await evaluate(readBlocks);
+
+    const movedDown =
+      afterDown.blocks.indexOf(sourceTag) === before.caretIndex + 1 &&
+      afterDown.blocks[before.caretIndex] === neighbourTag &&
+      afterDown.caretIndex === before.caretIndex + 1;
+    const movedUp =
+      afterUp.order === before.order &&
+      afterUp.caretIndex === before.caretIndex;
+    const insertedBelow =
+      afterInsert.count === before.count + 1 &&
+      afterInsert.blocks[before.caretIndex + 1] === "P:" &&
+      afterInsert.caretIndex === before.caretIndex + 1 &&
+      afterInsert.brInFirstP === 0;
+    const restored =
+      afterRestore.order === before.order &&
+      afterRestore.count === before.count &&
+      afterRestore.frontmatter === before.frontmatter;
+
+    add(
+      "block keys move the current block and insert a paragraph below without leaving the editor (#178)",
+      movedDown && movedUp && insertedBelow && restored,
+      `index=${before.caretIndex}->${afterDown.blocks.indexOf(sourceTag)}->${afterUp.caretIndex} ` +
+        `swappedWith=${JSON.stringify(afterDown.blocks[before.caretIndex])} ` +
+        `caretAfterDown=${afterDown.caretIndex} ` +
+        `count=${before.count}->${afterInsert.count}->${afterRestore.count} ` +
+        `inserted=${JSON.stringify(afterInsert.blocks[before.caretIndex + 1] ?? null)} ` +
+        `caretInInserted=${afterInsert.caretIndex === before.caretIndex + 1} ` +
+        `brInFirstP=${afterInsert.brInFirstP} restored=${restored} ` +
+        `frontmatterIntact=${afterRestore.frontmatter === before.frontmatter}`,
+    );
+  } catch (err) {
+    add(
+      "block keys move the current block and insert a paragraph below without leaving the editor (#178)",
+      false,
+      `threw: ${err.message}`,
+    );
+  }
+
   // --- Slash command (#114) -------------------------------------------------
   // Typed into a NEW empty paragraph at the end, because the plugin only fires
   // at the start of an empty one. `Input.insertText` rather than a DOM write:
@@ -2867,6 +3034,271 @@ async function attachAll(port, sessions) {
   }
 }
 
+/**
+ * Find the currently visible custom-editor webview whose `<h1>` includes
+ * `headingText`, attaching to any newly opened DevTools targets along the way.
+ */
+async function findWebviewByHeading(port, sessions, headingText, beat = () => {}, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs;
+  const probeExpr =
+    "JSON.stringify({" +
+      "mounted: !!document.querySelector('.tiptap')," +
+      "h1: document.querySelector('.tiptap h1')?.textContent ?? ''," +
+      "width: Math.round(document.querySelector('.tiptap')?.getBoundingClientRect().width ?? 0)," +
+    "})";
+  while (Date.now() < deadline) {
+    beat();
+    try {
+      await attachAll(port, sessions);
+    } catch {
+      /* endpoint momentarily busy */
+    }
+    let fallback = null;
+    for (const session of [...sessions.values()].reverse()) {
+      if (session.isClosed) continue;
+      for (const context of [...session.contexts].reverse()) {
+        try {
+          const res = await session.send("Runtime.evaluate", {
+            expression: probeExpr,
+            contextId: context.id,
+            returnByValue: true,
+          });
+          const val = JSON.parse(res.result.value);
+          if (val.mounted && val.h1.includes(headingText)) {
+            const evalInContext = async (expression) => {
+              const r = await session.send("Runtime.evaluate", {
+                expression,
+                contextId: context.id,
+                returnByValue: true,
+                awaitPromise: true,
+              });
+              if (r.exceptionDetails) {
+                throw new Error(r.exceptionDetails.text ?? "evaluate threw");
+              }
+              return r.result.value;
+            };
+            if (val.width > 0) return { session, contextId: context.id, evaluate: evalInContext };
+          }
+        } catch {
+          /* context gone or belongs to another frame */
+        }
+      }
+    }
+    await sleep(250);
+  }
+  return null;
+}
+
+/**
+ * Post-drive wave-11 checks (#171 cross-file fragment scroll, #172/#177
+ * `saveImage` folder template + magic-byte format sniffing).
+ *
+ * Runs after `driveInteractions` and `runImageDeleteOnSaveCheck` have
+ * completed on the host so neither the extra saved image nor opening a second
+ * custom editor tab (`other.md`) perturbs any earlier check. Coordinated with
+ * `runWave11FloorChecks` in `extension-tests.ts` over `phase-w11-cmd-<i>` /
+ * `phase-w11-done-<i>` markers and `phase-w11-end`.
+ */
+async function driveWave11Checks(base, debugPort, sessions) {
+  const cmdMarker = (i) => path.join(base, `phase-w11-cmd-${i}`);
+  const doneMarker = (i) => path.join(base, `phase-w11-done-${i}`);
+  const endMarker = path.join(base, "phase-w11-end");
+  const progressMarker = path.join(base, "phase-progress");
+  const beat = () => {
+    try {
+      fs.writeFileSync(progressMarker, String(Date.now()), "utf8");
+    } catch {
+      /* base already removed */
+    }
+  };
+  const writeDone = (i, payload) => {
+    beat();
+    try {
+      fs.writeFileSync(doneMarker(i), JSON.stringify(payload), "utf8");
+    } catch {
+      /* base already removed */
+    }
+  };
+
+  for (let i = 0; ; i++) {
+    const waitDeadline = Date.now() + 90000;
+    while (!fs.existsSync(cmdMarker(i)) && !fs.existsSync(endMarker) && Date.now() < waitDeadline) {
+      await sleep(150);
+    }
+    if (!fs.existsSync(cmdMarker(i))) return;
+
+    let cmd;
+    try {
+      cmd = JSON.parse(fs.readFileSync(cmdMarker(i), "utf8"));
+    } catch (err) {
+      writeDone(i, { ok: false, error: `bad cmd json: ${err.message}` });
+      continue;
+    }
+
+    try {
+      if (cmd.op === "dropWebpImage") {
+        const target = await findWebviewByHeading(debugPort, sessions, "Heading One", beat);
+        if (!target) {
+          writeDone(i, { ok: false, error: "could not find sample.md webview" });
+          continue;
+        }
+        // Dispatch a real drop event on .tiptap with WebP magic bytes inside a
+        // File named "x.png" (type "image/png"). `handleDrop` in main.ts reads
+        // the File via FileReader and posts `{ type: "saveImage", data,
+        // filename: "x.png", blobUrl }` to the extension host.
+        const dropped = await target.evaluate(
+          "(() => {" +
+            "const root = document.querySelector('.tiptap');" +
+            "const p = root ? root.querySelector(':scope > p') : null;" +
+            "if (!root || !p) return { ok: false, why: 'no .tiptap > p' };" +
+            "p.scrollIntoView({ block: 'center' });" +
+            "const r = p.getBoundingClientRect();" +
+            "const cx = Math.round(r.left + r.width / 2);" +
+            "const cy = Math.round(r.top + r.height / 2);" +
+            "const webp = new Uint8Array([0x52,0x49,0x46,0x46,0x24,0,0,0,0x57,0x45,0x42,0x50,0x56,0x50,0x38,0x20]);" +
+            "const file = new File([webp], 'x.png', { type: 'image/png' });" +
+            "const dt = new DataTransfer();" +
+            "dt.items.add(file);" +
+            "const ev = new DragEvent('drop', {" +
+              "bubbles: true, cancelable: true, composed: true," +
+              "dataTransfer: dt, clientX: cx, clientY: cy," +
+            "});" +
+            "root.dispatchEvent(ev);" +
+            "return { ok: true };" +
+          "})()",
+        );
+        if (!dropped?.ok) {
+          writeDone(i, { ok: false, error: dropped?.why ?? "drop failed" });
+          continue;
+        }
+        // Poll until `imageSaved` updates the inserted <img> src to the
+        // webview resource URI (ending in /images/sample/x.webp when #177 is
+        // intact, or /images/sample/x.png when broken).
+        const pollStart = Date.now();
+        let imgSrc = "";
+        while (Date.now() - pollStart < 10000) {
+          beat();
+          await sleep(200);
+          imgSrc = await target.evaluate(
+            "(() => {" +
+              "const imgs = Array.from(document.querySelectorAll('.tiptap img'));" +
+              "const hit = imgs.find((im) => /images\\/sample\\/x\\.|\\/x\\.(?:webp|png)/.test(im.getAttribute('src') || ''));" +
+              "return hit ? (hit.getAttribute('src') || '') : '';" +
+            "})()",
+          );
+          if (imgSrc) break;
+        }
+        // Wait past the 300ms edit debounce so the updated markdown reaches the host.
+        await sleep(1000);
+        writeDone(i, {
+          ok: true,
+          imgSrc,
+          matchedWebpNode: /images\/sample\/x\.webp/.test(imgSrc),
+        });
+      } else if (cmd.op === "resetOtherScroll") {
+        const other = await findWebviewByHeading(debugPort, sessions, "Other Document", beat);
+        if (!other) {
+          writeDone(i, { ok: false, error: "could not find other.md webview" });
+          continue;
+        }
+        const resetScrollTop = await other.evaluate(
+          "(() => {" +
+            "window.dispatchEvent(new Event('wheel'));" +
+            "const c = document.getElementById('editor-container');" +
+            "if (!c) return -1;" +
+            "c.scrollTop = 0;" +
+            "return Math.round(c.scrollTop);" +
+          "})()",
+        );
+        writeDone(i, { ok: true, resetScrollTop });
+      } else if (cmd.op === "clickAndReadOther") {
+        const sampleWv = await findWebviewByHeading(debugPort, sessions, "Heading One", beat);
+        if (!sampleWv) {
+          writeDone(i, { ok: false, error: "could not find sample.md webview" });
+          continue;
+        }
+        const selectorJson = JSON.stringify(String(cmd.selector));
+        let clicked = false;
+        const clickDeadline = Date.now() + 8000;
+        while (Date.now() < clickDeadline) {
+          beat();
+          clicked = await sampleWv.evaluate(
+            "(() => {" +
+              "const el = document.querySelector(" + selectorJson + ");" +
+              "if (!el) return false;" +
+              "el.scrollIntoView({ block: 'center' });" +
+              "el.click();" +
+              "return true;" +
+            "})()",
+          );
+          if (clicked) break;
+          await sleep(200);
+        }
+        if (!clicked) {
+          writeDone(i, { ok: false, error: `selector not found: ${cmd.selector}` });
+          continue;
+        }
+
+        const otherWv = await findWebviewByHeading(debugPort, sessions, "Other Document", beat);
+        if (!otherWv) {
+          writeDone(i, { ok: false, error: "other.md webview never mounted after click" });
+          continue;
+        }
+
+        const readExpr =
+          "(() => {" +
+            "const c = document.getElementById('editor-container');" +
+            "const h2s = Array.from(document.querySelectorAll('.tiptap h2'));" +
+            "const h = h2s.find((el) => (el.textContent || '').includes('Some Heading'));" +
+            "if (!c || !h) return null;" +
+            "const cr = c.getBoundingClientRect();" +
+            "const hr = h.getBoundingClientRect();" +
+            "const sel = window.getSelection();" +
+            "const anchor = sel && sel.rangeCount ? sel.anchorNode : null;" +
+            "const anchorEl = anchor ? (anchor.nodeType === 1 ? anchor : anchor.parentElement) : null;" +
+            "const blockEl = anchorEl && anchorEl.closest ? anchorEl.closest('.tiptap > *') : null;" +
+            "const caretBlock = blockEl ? (blockEl.tagName + ':' + (blockEl.textContent || '').trim().slice(0, 20)) : null;" +
+            "return {" +
+              "scrollTop: Math.round(c.scrollTop)," +
+              "headingOffset: Math.round(hr.top - cr.top)," +
+              "caretBlock," +
+            "};" +
+          "})()";
+
+        let reading = null;
+        const pollMs = cmd.expectScroll ? 2500 : 800;
+        const pollStart = Date.now();
+        while (Date.now() - pollStart < pollMs) {
+          beat();
+          reading = await otherWv.evaluate(readExpr);
+          if (
+            reading &&
+            (!cmd.expectScroll ||
+              (reading.scrollTop > 0 && reading.headingOffset >= 0 && reading.headingOffset <= 140))
+          ) {
+            break;
+          }
+          await sleep(150);
+        }
+        // Wait past the 300ms debounce window so an unguarded setTextSelection
+        // would have posted its `edit` and dirtied `other.md` before the host
+        // reads `otherDoc.isDirty`.
+        await sleep(600);
+        reading = (await otherWv.evaluate(readExpr)) ?? reading;
+        if (!reading) {
+          writeDone(i, { ok: false, error: "could not read other.md scroll metrics" });
+          continue;
+        }
+        writeDone(i, { ok: true, ...reading });
+      } else {
+        writeDone(i, { ok: false, error: `unknown op: ${String(cmd.op)}` });
+      }
+    } catch (err) {
+      writeDone(i, { ok: false, error: `threw: ${err.message}` });
+    }
+  }
+}
+
 function tick(ok) {
   return ok ? "PASS" : "FAIL";
 }
@@ -3021,6 +3453,8 @@ async function main() {
   await driveSaveFlush(base, webviewSession, webview?.contextId);
 
   const driven = await driveInteractions(base, webviewSession, webview?.contextId, sessions);
+
+  await driveWave11Checks(base, debugPort, sessions);
 
   const consoleEntries = [...sessions.values()].flatMap((s) => s.consoleEntries);
   for (const session of sessions.values()) session.close();

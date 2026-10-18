@@ -884,6 +884,260 @@ async function runSchemeAssociationCheck(uri: vscode.Uri): Promise<void> {
   }
 }
 
+/**
+ * Wave-11 post-drive floor checks (#172/#177 `saveImage` folder template +
+ * magic-byte format sniffing, and #171 cross-file `#fragment` scroll across
+ * both the unopened-target `pendingFragments` path and the already-open
+ * `findSessionByPath` path).
+ *
+ * Coordinated with `driveWave11Checks` in `run.mjs` over `phase-w11-cmd-<i>` /
+ * `phase-w11-done-<i>` markers and `phase-w11-end`.
+ */
+async function runWave11FloorChecks(base: string, uri: vscode.Uri): Promise<void> {
+  const SAVE_IMAGE_NAME =
+    "saveImage expands ${fileName} in imageSaveFolder and sniffs WebP magic bytes over a .png hint (#172, #177)";
+  const FRAGMENT_NAME =
+    "cross-file [[Note#Heading]] and [text](file.md#heading) links scroll the target editor to the heading without dirtying it (#171)";
+
+  const docFolder = path.dirname(uri.fsPath);
+  const progressPath = path.join(base, "phase-progress");
+  const tuiConfig = vscode.workspace.getConfiguration("tuiMarkdown");
+  const origSaveFolder = tuiConfig.inspect<string>("imageSaveFolder")?.workspaceValue;
+  const otherPath = path.join(docFolder, "other.md");
+  const WEBP_BYTES = Buffer.from([
+    0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00,
+    0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20,
+  ]);
+
+  let stepIndex = 0;
+  const sendStep = async (payload: Record<string, unknown>): Promise<any> => {
+    const i = stepIndex++;
+    const cmdFile = path.join(base, `phase-w11-cmd-${i}`);
+    const doneFile = path.join(base, `phase-w11-done-${i}`);
+    fs.writeFileSync(cmdFile, JSON.stringify(payload), "utf8");
+    const arrived = await waitForFileWithHeartbeat(
+      doneFile,
+      progressPath,
+      STALL_TIMEOUT_MS,
+      DRIVEN_CAP_MS,
+    );
+    if (!arrived) return { ok: false, error: `phase-w11-done-${i} timed out` };
+    return JSON.parse(fs.readFileSync(doneFile, "utf8"));
+  };
+
+  const getSampleDoc = async (): Promise<vscode.TextDocument> => {
+    const existing = vscode.workspace.textDocuments.find(
+      (d) => d.uri.fsPath === uri.fsPath && !d.isClosed,
+    );
+    return existing ?? (await vscode.workspace.openTextDocument(uri));
+  };
+
+  const saveDirtyDocs = async (): Promise<void> => {
+    for (const d of vscode.workspace.textDocuments) {
+      if (!d.isClosed && d.isDirty && d.uri.scheme === "file") {
+        try {
+          await d.save();
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  };
+
+  try {
+    // ---- 1. #172 / #177: saveImage with `images/${fileName}` + WebP bytes ----
+    try {
+      await saveDirtyDocs();
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+      await sleep(400);
+      await tuiConfig.update(
+        "imageSaveFolder",
+        "images/${fileName}",
+        vscode.ConfigurationTarget.Workspace,
+      );
+      await sleep(400);
+      await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
+      await waitForCustomTab(20000);
+      await sleep(600);
+
+      const dropRes = await sendStep({ op: "dropWebpImage" });
+      const expectedWebp = path.join(docFolder, "images", "sample", "x.webp");
+      const wrongPngSub = path.join(docFolder, "images", "sample", "x.png");
+      const wrongFlatWebp = path.join(docFolder, "images", "x.webp");
+      const wrongFlatPng = path.join(docFolder, "images", "x.png");
+
+      const pollDeadline = Date.now() + 5000;
+      while (Date.now() < pollDeadline) {
+        const liveDoc = await getSampleDoc();
+        if (fs.existsSync(expectedWebp) && liveDoc.getText().includes("images/sample/x.webp")) {
+          break;
+        }
+        await sleep(200);
+      }
+
+      const liveDoc = await getSampleDoc();
+      const onDisk = fs.existsSync(expectedWebp);
+      const bytesMatch = onDisk && fs.readFileSync(expectedWebp).equals(WEBP_BYTES);
+      const noWrongPng = !fs.existsSync(wrongPngSub);
+      const noFlatFile = !fs.existsSync(wrongFlatWebp) && !fs.existsSync(wrongFlatPng);
+      const docText = liveDoc.getText();
+      const inMarkdown =
+        docText.includes("images/sample/x.webp") && !docText.includes("images/sample/x.png");
+      const inDom = Boolean(dropRes?.ok && dropRes?.matchedWebpNode);
+
+      record(
+        SAVE_IMAGE_NAME,
+        onDisk && bytesMatch && noWrongPng && noFlatFile && inMarkdown && inDom,
+        `onDisk=${onDisk} bytesMatch=${bytesMatch} noWrongPng=${noWrongPng} noFlatFile=${noFlatFile} ` +
+          `inMarkdown=${inMarkdown} inDom=${inDom} imgSrc=${JSON.stringify(String(dropRes?.imgSrc ?? "").slice(-40))}` +
+          (dropRes?.error ? ` error=${dropRes.error}` : ""),
+      );
+    } catch (err) {
+      record(
+        SAVE_IMAGE_NAME,
+        false,
+        err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+      );
+    } finally {
+      try {
+        await tuiConfig.update("imageSaveFolder", origSaveFolder, vscode.ConfigurationTarget.Workspace);
+      } catch {
+        /* workspace is temporary */
+      }
+      await saveDirtyDocs();
+    }
+
+    // ---- 2. #171: Cross-file `#fragment` scroll (wiki link + markdown link) ----
+    try {
+      const fillerBefore = Array.from(
+        { length: 35 },
+        (_, idx) =>
+          `Paragraph ${idx + 1} before the target heading so the heading starts well below the initial viewport fold.`,
+      ).join("\n\n");
+      const fillerAfter = Array.from(
+        { length: 35 },
+        (_, idx) =>
+          `Paragraph ${idx + 1} after the target heading so the bottom of the document does not clamp scrollTop.`,
+      ).join("\n\n");
+      fs.writeFileSync(
+        otherPath,
+        `# Other Document\n\n${fillerBefore}\n\n## Some Heading\n\n${fillerAfter}\n`,
+        "utf8",
+      );
+
+      await saveDirtyDocs();
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+      await sleep(400);
+
+      const liveSample = await getSampleDoc();
+      const linkLine = "\n\n[Plain](other.md) [[Other#Some Heading]] [Jump](other.md#some-heading)\n";
+      const insertEdit = new vscode.WorkspaceEdit();
+      insertEdit.insert(uri, new vscode.Position(liveSample.lineCount, 0), linkLine);
+      await vscode.workspace.applyEdit(insertEdit);
+      await liveSample.save();
+      await sleep(400);
+
+      // (a) Unopened-target path via `pendingByDoc`: `other.md` has not been
+      //     opened yet in this session, so `panelsByDoc` has no entry for it.
+      //     Open `sample.md` and follow `[[Other#Some Heading]]`.
+      await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
+      await waitForCustomTab(20000);
+      await sleep(600);
+      const wiki = await sendStep({
+        op: "clickAndReadOther",
+        selector: '.wiki-link[data-filename="Other#Some Heading"]',
+        expectScroll: true,
+      });
+      const otherDocAfterWiki = vscode.workspace.textDocuments.find(
+        (d) => d.uri.fsPath === otherPath && !d.isClosed,
+      );
+      const wikiDirty = otherDocAfterWiki ? otherDocAfterWiki.isDirty : true;
+
+      // (b) Already-open-target path via `panelsByDoc` AND markdown link via
+      //     `openLocalFileInEditor`: keep `other.md` open in its tab, reset its
+      //     `scrollTop` to 0, switch back to `sample.md`, and follow
+      //     `[Jump](other.md#some-heading)`.
+      const reset = await sendStep({ op: "resetOtherScroll" });
+      await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
+      await waitForCustomTab(20000);
+      await sleep(600);
+      const md = await sendStep({
+        op: "clickAndReadOther",
+        selector: 'a[href="other.md#some-heading"]',
+        expectScroll: true,
+      });
+      const otherDocAfterMd = vscode.workspace.textDocuments.find(
+        (d) => d.uri.fsPath === otherPath && !d.isClosed,
+      );
+      const mdDirty = otherDocAfterMd ? otherDocAfterMd.isDirty : true;
+
+      // (c) Control: `[Plain](other.md)` with no fragment must NOT scroll.
+      await saveDirtyDocs();
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+      await sleep(400);
+      await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
+      await waitForCustomTab(20000);
+      await sleep(600);
+      const plain = await sendStep({
+        op: "clickAndReadOther",
+        selector: 'a[href="other.md"]',
+        expectScroll: false,
+      });
+
+      const plainOk =
+        Boolean(plain?.ok) && plain.scrollTop === 0 && plain.headingOffset > 300;
+      const wikiOk =
+        Boolean(wiki?.ok) &&
+        wiki.scrollTop > 0 &&
+        wiki.headingOffset >= 0 &&
+        wiki.headingOffset <= 140 &&
+        !wikiDirty;
+      const mdOk =
+        Boolean(reset?.ok) &&
+        reset.resetScrollTop === 0 &&
+        Boolean(md?.ok) &&
+        md.scrollTop > 0 &&
+        md.headingOffset >= 0 &&
+        md.headingOffset <= 140 &&
+        !mdDirty;
+
+      record(
+        FRAGMENT_NAME,
+        plainOk && wikiOk && mdOk,
+        `plain(scrollTop=${plain?.scrollTop},offset=${plain?.headingOffset}) ` +
+          `wiki(scrollTop=${wiki?.scrollTop},offset=${wiki?.headingOffset},caret=${JSON.stringify(wiki?.caretBlock)},dirty=${wikiDirty}) ` +
+          `md(reset=${reset?.resetScrollTop},scrollTop=${md?.scrollTop},offset=${md?.headingOffset},caret=${JSON.stringify(md?.caretBlock)},dirty=${mdDirty})` +
+          (plain?.error ? ` plainErr=${plain.error}` : "") +
+          (wiki?.error ? ` wikiErr=${wiki.error}` : "") +
+          (md?.error ? ` mdErr=${md.error}` : ""),
+      );
+    } catch (err) {
+      record(
+        FRAGMENT_NAME,
+        false,
+        err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+      );
+    }
+  } finally {
+    try {
+      fs.writeFileSync(path.join(base, "phase-w11-end"), "end", "utf8");
+    } catch {
+      /* base already removed */
+    }
+    await saveDirtyDocs();
+    try {
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    } catch {
+      /* ignore */
+    }
+    try {
+      fs.rmSync(otherPath, { force: true });
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 export async function run(): Promise<void> {
   const resultPath = process.env.TUI_FLOOR_RESULT;
   const samplePath = process.env.TUI_FLOOR_SAMPLE;
@@ -1010,6 +1264,7 @@ export async function run(): Promise<void> {
           false,
           `phase-driven never appeared; last runner heartbeat ${beats}`,
         );
+        fs.writeFileSync(path.join(base, "phase-w11-end"), "end", "utf8");
       } else {
         const text = afterHold.getText();
         record(
@@ -1103,6 +1358,8 @@ export async function run(): Promise<void> {
         await runTrashCapabilityProbe(path.dirname(samplePath), findInTrash);
 
         await runImageDeleteOnSaveCheck(uri);
+
+        await runWave11FloorChecks(base, uri);
 
         await runDiffEditorCheck(uri);
 
