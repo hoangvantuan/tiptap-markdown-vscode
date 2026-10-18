@@ -7,7 +7,7 @@ Nhánh `wave11/w3-image-naming`, tách từ `develop` tại `f2bd057`. Mọi kh�
 - `src/host/imageName.ts` (mới, thuần): mở rộng mẫu, làm sạch tên tài liệu, các guard.
 - `src/host/imageFormat.ts` (mới, thuần): bảng magic bytes PNG/JPEG/GIF/WebP/SVG và `correctExtension`.
 - `src/host/saveImage.ts`: ruột `writeImage()` dùng hai module trên. Chữ ký không đổi; JSDoc ghi hợp đồng "filename là tên gợi ý".
-- `package.json`: setting mới `tuiMarkdown.imageFileNameTemplate`; `imageSaveFolder` nhận biến (đổi `description`).
+- `package.json`: setting mới `tuiMarkdown.imageFileNameTemplate` (mặc định `${name}`); `imageSaveFolder` nhận biến (đổi `description`).
 - `src/host/config.ts`: thêm `getImageSaveFolder()` và `getImageFileNameTemplate()` (chỉ thêm).
 - `src/webview/main.ts`: chỉ thêm một comment trên `generateImageFilename` (hành vi không đổi).
 - Test: `test/image-format.test.ts`, `test/image-name.test.ts`, `test/save-image.test.ts`.
@@ -28,13 +28,51 @@ export interface TemplateVars {
 }
 ```
 
-Ngoài tối thiểu (`fileName`, `date`, `now`, `uuid`, `random`, `ext`) có thêm `name` (tên gợi ý bỏ đuôi; với ảnh kéo-thả là tên file gốc). Không hỗ trợ `${workspaceDir}` (biến lạ bị từ chối, có test).
+Ngoài tối thiểu (`fileName`, `date`, `now`, `uuid`, `random`, `ext`) có thêm `name` (tên gợi ý bỏ đuôi; với ảnh dán là `image-<now>-<random>` do webview sinh, với ảnh kéo-thả/chọn file là tên file gốc). Không hỗ trợ `${workspaceDir}` (biến lạ bị từ chối, có test).
 
-Mặc định:
+Mặc định (`grep -n 'DEFAULT_IMAGE_FILENAME_TEMPLATE =\|DEFAULT_IMAGE_SAVE_FOLDER =' src/host/imageName.ts`):
 
 ```
 29:export const DEFAULT_IMAGE_SAVE_FOLDER = "images";
-36:export const DEFAULT_IMAGE_FILENAME_TEMPLATE = "image-${now}-${random}";
+39:export const DEFAULT_IMAGE_FILENAME_TEMPLATE = "${name}";
+```
+
+Mặc định `tuiMarkdown.imageFileNameTemplate` là `${name}`: ảnh dán giữ nguyên `image-<now>-<random>.<ext>` như hôm nay (vì webview vẫn sinh tên gợi ý đó), ảnh kéo-thả `photo.png` (và ảnh chọn từ file picker của W4) giữ nguyên tên gốc `photo.png`. Các biến `${now}`, `${random}`, `${date}`, `${uuid}`, `${fileName}`, `${ext}` sẵn sàng khi người dùng đặt mẫu riêng.
+
+Test ghim hành vi mặc định (`sed -n '142,172p' test/image-name.test.ts`):
+
+```
+  it("the default template gives the suggested name back unchanged", () => {
+    const cases: Array<[suggested: string, ext: string]> = [
+      ["image-1712345678901-k3j9x2.png", "png"], // what the webview generates for a paste
+      ["image-1712345678901-k3j9x2.jpeg", "jpeg"],
+      ["photo.png", "png"], // a dropped file
+      ["My holiday photo.jpg", "jpg"],
+      ["a.b.png", "png"],
+      ["IMG_0001.PNG", "PNG"],
+    ];
+    for (const [suggested, ext] of cases) {
+      const r = expandFileName(DEFAULT_IMAGE_FILENAME_TEMPLATE, vars("Notes.md", suggested, ext));
+      assert.ok(r.ok);
+      assert.equal(r.value, suggested);
+    }
+  });
+
+  it("package.json declares the same defaults as the code falls back to", () => {
+    // `npm test` runs from the repo root. Two copies of a default drift; this
+    // is what keeps the Settings UI and the blank-setting fallback in step.
+    const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"));
+    const props = pkg.contributes.configuration.properties;
+    assert.equal(props["tuiMarkdown.imageFileNameTemplate"].default, DEFAULT_IMAGE_FILENAME_TEMPLATE);
+    assert.equal(props["tuiMarkdown.imageSaveFolder"].default, DEFAULT_IMAGE_SAVE_FOLDER);
+  });
+
+  it("the default template is ${name}, and ${now}/${random} stay available to a user template", () => {
+    assert.equal(DEFAULT_IMAGE_FILENAME_TEMPLATE, "${name}");
+    const r = expandFileName("image-${now}-${random}", vars());
+    assert.ok(r.ok);
+    assert.match(r.value, /^image-\d+-[0-9a-z]{6}\.png$/);
+  });
 ```
 
 ### Quy tắc mở rộng
@@ -79,7 +117,7 @@ export function expandFileName(template: string, vars: TemplateVars): Expansion 
 
 - Biến lạ là LỖI (không ghi literal), thư mục KHÔNG được tạo.
 - `.ext` tự nối trừ khi mẫu có `${ext}`.
-- Tên đã tồn tại thì thêm `-2`, `-3`... (trước đây ghi đè lặng lẽ). Cần vì mẫu như `${fileName}` sẽ ghi đè ảnh trước. Các lần `writeImage` đồng thời được xếp hàng (`writeQueue`) để không chọn trùng tên.
+- Tên đã tồn tại thì thêm `-2`, `-3`... (trước đây kéo-thả file trùng tên ghi đè lặng lẽ; đây là bản sửa lỗi). Các lần `writeImage` đồng thời được xếp hàng (`writeQueue`) để không chọn trùng tên.
 - Dấu `/` cuối trong thư mục được bỏ (`images/` không còn cho `images//x.png`).
 
 ### Thứ tự guard trong `writeImage` (chạy trên KẾT QUẢ mở rộng)
@@ -99,7 +137,7 @@ export function expandFileName(template: string, vars: TemplateVars): Expansion 
 167:      finalName = withSuffix(nameExpansion.value, n);
 ```
 
-Guard cũ giữ nguyên: tên gợi ý bị kiểm như trước; thư mục tuyệt đối / `..`; `path.relative` so với thư mục tài liệu; tên cuối cùng (`..`, `/`, `\`, ký tự cấm, tên thiết bị Windows). `fileName` còn được làm sạch ngay từ đầu.
+Guard cũ giữ nguyên: tên gợi ý bị kiểm như trước; thư mục tuyệt đối / `..`; `path.relative` so với thư mục tài liệu; tên cuối cùng (`..`, `/`, `\`, ký tự cấm, tên thiết bị Windows). `fileName` và `name` còn được làm sạch ngay từ đầu.
 
 ### #177
 
@@ -127,19 +165,14 @@ export function correctExtension(suggestedExt: string, bytes: Uint8Array): strin
 
 Phần mở rộng đúng (kể cả `.jpeg`, hoa/thường) giữ nguyên; sai thì sửa; byte lạ thì giữ gợi ý; không có gợi ý và byte lạ thì `png`. SVG nhận `<svg` hoặc `<?xml` sau BOM/khoảng trắng (đúng như TASK; `<?xml` không kiểm thêm gốc `<svg`, nên một XML không phải SVG gắn nhãn `image/*` sẽ thành `.svg`; chấp nhận, ghi trong comment đầu file).
 
-## Điểm cần điều phối viên quyết
-
-1. **Ảnh kéo-thả mất tên gốc ở cấu hình mặc định.** Trước: `handleDrop` gửi `imageFile.name` và file được lưu đúng tên đó. Nay mọi nguồn đi qua mẫu, nên thả `photo.png` cho `images/image-<now>-<random>.png`. TASK nói "mặc định KHÔNG đổi hành vi" nhưng mô tả hình dạng tên là của dán ảnh; tôi chọn nhất quán (một mẫu cho mọi nguồn, `${name}` để giữ tên gốc). Muốn giữ hành vi cũ cho kéo-thả: thêm một dấu hiệu từ webview, hoặc để mặc định kéo-thả là `${name}`; cần quyết định trước khi W4 nối thêm nguồn. Tôi KHÔNG tự làm.
-2. Tên bị đụng nay thêm hậu tố thay vì ghi đè (thay đổi hành vi có chủ ý, xem trên).
-
 ## Kiểm chứng
 
-Lệnh và output thật (lượt cuối, sau commit `39d5fc5`):
+Lệnh và output thật (lượt cuối, sau commit `608cec8`):
 
 ```
 $ npm run lint            -> sạch (tsc --noEmit)
 $ npm run build           -> Build complete (production); webview bundle: 1028747 B / 1100000 B budget (không đổi so với mốc)
-$ npm test                -> ℹ tests 161 / ℹ pass 161 / ℹ fail 0     (mốc 98; thêm 63)
+$ npm test                -> ℹ tests 166 / ℹ pass 166 / ℹ fail 0     (mốc 98; thêm 68)
 $ npm run roundtrip       -> 45 markdown fixtures + 21 seams: 66 passed, 0 failed, 0 missing, 0 errored
 vòng hai + khôi phục      -> 66 passed, 0 failed, 0 missing, 0 errored; git status --short harness/ rỗng
 floor                     -> 63 checks: 63 passed, 0 failed
@@ -152,13 +185,16 @@ $ MB=$(git merge-base develop HEAD); git diff $MB..HEAD --stat -- harness/fixtur
 
 ### Răng (ràng buộc 9)
 
-Mỗi dòng: phá MỘT chỗ trong file mang cơ chế, chạy `npm test`, khôi phục bằng `git checkout -- <file>`. "đỏ" là số ca lá (dòng `ℹ fail`), mốc là 161 pass / 0 fail. Script dùng: `/tmp/w3teeth/run.sh` (không commit; nội dung ở cuối mục).
+Mỗi dòng: phá MỘT chỗ trong file mang cơ chế, chạy `npm test`, khôi phục bằng `git checkout -- <file>`. "đỏ" là số ca lá (dòng `ℹ fail`), mốc là 166 pass / 0 fail. Script dùng: `/tmp/w3teeth/run.sh` (không commit; nội dung ở cuối mục).
 
 | Phá cái gì | File | Đỏ |
 |---|---|---|
-| chữ ký WebP không bao giờ khớp | imageFormat.ts | 6 |
-| `correctExtension` luôn giữ gợi ý | imageFormat.ts | 4 |
+| chữ ký WebP không bao giờ khớp | imageFormat.ts | 7 |
+| `correctExtension` luôn giữ gợi ý | imageFormat.ts | 5 |
 | SVG không bao giờ nhận | imageFormat.ts | 3 |
+| đổi `DEFAULT_IMAGE_FILENAME_TEMPLATE` khỏi `${name}` | imageName.ts | 12 |
+| `default` trong `package.json` lệch khỏi hằng số mã | package.json | 1 |
+| biến `name` không lấy từ `suggestedName` | imageName.ts | 12 |
 | bỏ thay `..` trong `sanitizeNameSegment` | imageName.ts | 3 |
 | bỏ thay dấu phân cách / ký tự cấm | imageName.ts | 6 |
 | bỏ tiền tố `_` cho tên thiết bị | imageName.ts | 2 |
@@ -170,11 +206,12 @@ Mỗi dòng: phá MỘT chỗ trong file mang cơ chế, chạy `npm test`, khô
 | bỏ guard tên đã mở rộng | saveImage.ts | 3 |
 | bỏ guard thư mục đã mở rộng | saveImage.ts | 1 |
 | **tắt kiểm `path.relative`** | saveImage.ts | **0** |
-| bỏ vòng chống đụng tên | saveImage.ts | 2 |
+| bỏ vòng chống đụng tên | saveImage.ts | 3 |
 | bỏ hàng đợi ghi | saveImage.ts | 1 |
-| không sửa phần mở rộng theo byte | saveImage.ts | 3 |
+| không sửa phần mở rộng theo byte | saveImage.ts | 4 |
 | `fileName` lấy sai nguồn | saveImage.ts | 7 |
-| bỏ qua cả hai mẫu | saveImage.ts | 15 |
+| bỏ qua mẫu tên file (luôn dùng `${name}`) | saveImage.ts | 9 |
+| bỏ qua mẫu tên file (luôn dùng tên cố định) | saveImage.ts | 18 |
 | (rủi ro ledger) tắt điều kiện "cùng thư mục" của rename | image-rename-handler.ts | 7 (2 là test mới) |
 | (rủi ro ledger) tắt phát hiện delete | image-rename-handler.ts | 11 (2 là test mới) |
 | (rủi ro ledger) rename không cần cùng thư mục | image-rename-handler.ts | 1 (test mới) |
@@ -226,19 +263,18 @@ Kết luận: không phát hiện hồi quy; luật "thư mục giữ nguyên" s
 
 ```
 ### Added
-- `tuiMarkdown.imageFileNameTemplate`: name pasted and dropped images from a template (default `image-${now}-${random}`, the old naming). `tuiMarkdown.imageSaveFolder` accepts the same variables, e.g. `images/${fileName}` for one folder per document. Variables: `${fileName}`, `${name}`, `${date}`, `${now}`, `${random}`, `${uuid}`, `${ext}`. `${workspaceDir}` is not supported: the image folder must stay inside the document's folder (#172)
+- `tuiMarkdown.imageFileNameTemplate`: name pasted and dropped images from a template (default `${name}`, keeping both the generated `image-<now>-<random>` name for pastes and the original file name for dropped/picked images). `tuiMarkdown.imageSaveFolder` accepts the same variables, e.g. `images/${fileName}` for one folder per document. Variables: `${fileName}`, `${name}`, `${date}`, `${now}`, `${random}`, `${uuid}`, `${ext}`. `${workspaceDir}` is not supported: the image folder must stay inside the document's folder (#172)
 - The image extension is taken from the file's content (PNG, JPEG, GIF, WebP, SVG) instead of its label, so a WebP the clipboard calls `image/png` is saved as `.webp` (#177)
 
-### Changed
-- A pasted or dropped image no longer overwrites a file of the same name; it gets `-2`, `-3`... (#172)
-- A dropped image is now named by `imageFileNameTemplate` like a pasted one; use `${name}` to keep its own name (#172)
+### Fixed
+- Saving a pasted or dropped image whose file name already exists in the destination folder now appends `-2`, `-3`... instead of silently overwriting the existing file (#172)
 ```
 
 **README** (tuỳ chọn, bảng cài đặt, cạnh dòng `tuiMarkdown.imageSaveFolder`):
 
 ```
-| `tuiMarkdown.imageSaveFolder`       | `images`                  | Folder for pasted images (relative to document). Accepts variables, e.g. `images/${fileName}` |
-| `tuiMarkdown.imageFileNameTemplate` | `image-${now}-${random}`  | File name for pasted images, without extension. Variables: `${fileName}` `${name}` `${date}` `${now}` `${random}` `${uuid}` `${ext}` |
+| `tuiMarkdown.imageSaveFolder`       | `images`  | Folder for pasted images (relative to document). Accepts variables, e.g. `images/${fileName}` |
+| `tuiMarkdown.imageFileNameTemplate` | `${name}` | File name for pasted/dropped images, without extension. Variables: `${fileName}` `${name}` `${date}` `${now}` `${random}` `${uuid}` `${ext}` |
 ```
 
 **AGENTS.md**: thêm vào cây `src/host/`:
@@ -248,7 +284,7 @@ Kết luận: không phát hiện hồi quy; luật "thư mục giữ nguyên" s
 │   ├── imageFormat.ts        # Pure: magic-byte table (PNG/JPEG/GIF/WebP/SVG) and correctExtension (#177)
 ```
 
-và vào mục Configuration Settings: dòng `imageFileNameTemplate` như trên; ghi quy ước: "`writeImage`'s `filename` is a suggestion; callers use the returned `relativePath`/`fileUri`; every guard runs on the expanded value; `${workspaceDir}` is deliberately unsupported".
+và vào mục Configuration Settings: dòng `imageFileNameTemplate` (default: `${name}`) như trên; ghi quy ước: "`writeImage`'s `filename` is a suggestion; callers use the returned `relativePath`/`fileUri`; every guard runs on the expanded value; `${workspaceDir}` is deliberately unsupported".
 
 ## Đặc tả floor check đề xuất
 
@@ -256,5 +292,5 @@ Vì floor chưa có check nào đi qua `saveImage` (ràng buộc 8, tôi không 
 
 - **Thao tác:** trong host của floor, đặt `tuiMarkdown.imageSaveFolder = "images/${fileName}"` ở workspace, mở một `.md`, gửi từ webview một message `saveImage` với `data` là base64 của một ảnh WebP nhỏ và `filename: "x.png"`.
 - **Đọc:** message `imageSaved` trả về (`savedPath`) và thư mục `images/<tên tài liệu>/` trên đĩa.
-- **Khẳng định:** `savedPath` khớp `^images/<tên tài liệu>/image-\d+-[0-9a-z]{6}\.webp$`; file tồn tại ở đó và nội dung bằng byte đã gửi; không có file nào ở `images/` gốc.
+- **Khẳng định:** `savedPath` là `images/<tên tài liệu>/x.webp`; file tồn tại ở đó và nội dung bằng byte đã gửi; không có file nào ở `images/` gốc.
 - **Phá thì phải đỏ:** làm `writeImage` bỏ qua mẫu (về `images/`), hoặc bỏ `correctExtension` (ra `.png`).
