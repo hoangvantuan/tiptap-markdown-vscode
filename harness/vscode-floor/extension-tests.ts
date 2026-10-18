@@ -37,6 +37,10 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
+// The association under test is the one the #122 command actually computes,
+// not a hand-written copy of it: a copy would keep passing after the command
+// went back to a bare `*.md`, which is the regression this check exists for.
+import { computeUpdatedAssociations } from "../../src/host/defaultEditor";
 
 const EXTENSION_ID = "tuanhv.tui-milkdown-vscode";
 const VIEW_TYPE = "tuiMarkdown.editor";
@@ -811,6 +815,75 @@ async function runSaveFlushRounds(base: string, doc: vscode.TextDocument): Promi
   );
 }
 
+/**
+ * The association `tuiMarkdown.useAsDefaultEditor` (#122) writes must not undo
+ * #169. Its keys name the same four schemes as `contributes.customEditors`
+ * because VS Code matches a key WITHOUT a `/` against the basename
+ * (`editorResolverService.ts`, 1.85), and a registered custom editor that a
+ * setting points at is resolved even when its selector does not match
+ * ("The user setting should be respected even if the editor doesn't specify
+ * that resource in package.json"). So a bare `*.md -> tuiMarkdown.editor` here
+ * would put a `cline:` markdown document back in this editor — measured, not
+ * assumed: that is what `cline-withAssoc=tuiMarkdown.editor` was before
+ * `defaultEditor.ts` was fixed.
+ *
+ * Both halves are measured in one run, because the second is the half a fix for
+ * the first can break: write the real association, and a virtual `cline:`
+ * document must land in the text editor while a `file:` document still lands
+ * here. A scheme-qualified key that quietly stopped matching `file:` would
+ * make the first half pass and the user lose the editor.
+ */
+async function runSchemeAssociationCheck(uri: vscode.Uri): Promise<void> {
+  const name = "the workspace association leaves other schemes alone and still opens file: markdown here";
+  // What `tuiMarkdown.useAsDefaultEditor` computes for "Tiptap Markdown
+  // (WYSIWYG)": the four schemes the manifest selects. Read from the command
+  // rather than restated here, so this check goes red if the command stops
+  // writing them.
+  const assoc = computeUpdatedAssociations({}, "wysiwyg") ?? {};
+  const provider = vscode.workspace.registerTextDocumentContentProvider("cline", {
+    provideTextDocumentContent: () => "# hello\n\nA cline virtual markdown document.\n",
+  });
+
+  const openAndRead = async (target: vscode.Uri): Promise<string> => {
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await sleep(400);
+    await vscode.commands.executeCommand("vscode.open", target);
+    await sleep(1500);
+    const input: any = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+    if (input && typeof input === "object" && typeof input.viewType === "string") {
+      return String(input.viewType);
+    }
+    return input && typeof input === "object" && input.uri ? "text" : "unknown";
+  };
+
+  const config = vscode.workspace.getConfiguration("workbench");
+  const original = config.inspect<Record<string, string>>("editorAssociations")?.workspaceValue;
+
+  try {
+    await config.update("editorAssociations", assoc, vscode.ConfigurationTarget.Workspace);
+    await sleep(800);
+
+    const cline = await openAndRead(vscode.Uri.parse("cline:/notes/readme.md"));
+    const local = await openAndRead(uri);
+
+    record(
+      name,
+      cline !== VIEW_TYPE && local === VIEW_TYPE,
+      `keys=[${Object.keys(assoc).join(" ")}] cline=${cline} file=${local}; ` +
+        "cline must be the text editor, file: must still be this one",
+    );
+  } catch (err) {
+    record(name, false, err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+  } finally {
+    provider.dispose();
+    try {
+      await config.update("editorAssociations", original, vscode.ConfigurationTarget.Workspace);
+    } catch {
+      /* the per-run workspace is thrown away anyway */
+    }
+  }
+}
+
 export async function run(): Promise<void> {
   const resultPath = process.env.TUI_FLOOR_RESULT;
   const samplePath = process.env.TUI_FLOOR_SAMPLE;
@@ -1034,6 +1107,10 @@ export async function run(): Promise<void> {
         await runDiffEditorCheck(uri);
 
         await runDefaultEditorAssociationCheck(uri);
+
+        // Also changes workspace settings and reopens the document, so it goes
+        // with the check above.
+        await runSchemeAssociationCheck(uri);
       }
     }
   } catch (err) {
