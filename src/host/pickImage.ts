@@ -64,19 +64,22 @@ function baseName(uriPath: string): string {
   return i === -1 ? uriPath : uriPath.slice(i + 1);
 }
 
+// Windows reserved device names (case-insensitive).
+const RESERVED_NAMES = /^(CON|PRN|AUX|NUL|COM\d|LPT\d)(\.|$)/i;
+
 /**
- * Split a picked file name into a markdown-safe alt text and the filename to
- * hand to `writeImage`.
+ * Split a picked file name into a markdown-safe alt text and the suggested
+ * filename to hand to `writeImage`.
  *
- * `writeImage` is only a guard: it rejects, rather than repairs, the characters
- * Windows forbids, so a picked name like `a:b.png` would fail with "Invalid
- * filename". They are replaced here instead. A short unique suffix is added
- * because `writeImage` overwrites: picking `screenshot.png` from another folder
- * must not silently replace the `images/screenshot.png` that is already there.
+ * `writeImage` rejects, rather than repairs, characters Windows forbids on its
+ * input filename, so a picked name like `a:b.png` is sanitised here first. The
+ * stem itself is kept clean (no random suffix): `writeImage` expands
+ * `tuiMarkdown.imageFileNameTemplate` (default `${name}`), corrects the
+ * extension from the file's magic bytes, and appends `-2`, `-3`... on
+ * collision, so the caller must use the `relativePath` `writeImage` returns.
  */
 export function pickedImageNames(
   originalName: string,
-  unique: string,
 ): { alt: string; filename: string } | undefined {
   const dot = originalName.lastIndexOf(".");
   const ext = dot > 0 ? originalName.slice(dot + 1).toLowerCase() : "";
@@ -85,10 +88,12 @@ export function pickedImageNames(
   const stem = rawStem
     .replace(/[<>:"|?*\\/\x00-\x1F\u202E]/g, "-")
     .replace(/\.{2,}/g, ".")
+    .replace(/[. ]+$/, "")
     .trim()
     .slice(0, 80);
-  const safeStem = stem && stem !== "." ? stem : "image";
-  return { alt: safeStem, filename: `${safeStem}-${unique}.${ext}` };
+  let safeStem = stem && stem !== "." ? stem : "image";
+  if (RESERVED_NAMES.test(safeStem)) safeStem = `_${safeStem}`;
+  return { alt: safeStem, filename: `${safeStem}.${ext}` };
 }
 
 export async function handlePickImage(
@@ -126,8 +131,7 @@ export async function handlePickImage(
       return;
     }
 
-    const unique = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-    const names = pickedImageNames(baseName(picked.path), unique);
+    const names = pickedImageNames(baseName(picked.path));
     if (!names) {
       deps.showWarningMessage(
         `Not a supported image file: ${baseName(picked.path)}`,
