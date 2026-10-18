@@ -32,7 +32,7 @@ import {
   type FrontmatterFormat,
 } from "./frontmatter";
 import { LineHighlight } from "./line-highlight-plugin";
-import { headingSlug } from "./heading-slug";
+import { fragmentMatchesHeading } from "./heading-slug";
 import { setupImageEditOverlay, handleUrlEditResponse, handleImageRenameResponse, setOnImageRenamed, promptForImageUrl } from "./image-edit-plugin";
 import {
   setImageMap,
@@ -1554,7 +1554,15 @@ function setupToolbarHandlers(): void {
       e.stopPropagation();
       const filename = wikiLink.getAttribute("data-filename");
       if (filename) {
-        vscode.postMessage({ type: "openWikiLink", filename });
+        // `[[#Heading]]` is all fragment: it names THIS document, so scroll
+        // here and open nothing (#170). Anything with a file part goes to the
+        // host, which splits the fragment off before resolving.
+        const trimmed = filename.trim();
+        if (trimmed.startsWith("#")) {
+          scrollToHeading(trimmed.slice(1));
+        } else {
+          vscode.postMessage({ type: "openWikiLink", filename });
+        }
       }
       return;
     }
@@ -1575,31 +1583,43 @@ function setupToolbarHandlers(): void {
 
 }
 
-/** Scroll editor to heading matching GitHub-style slug */
-function scrollToHeading(slug: string): void {
-  if (!editor) return;
+/**
+ * Scroll the editor to the first heading a link fragment names, and put the
+ * caret in it. Returns whether a heading matched.
+ *
+ * `fragment` is whatever followed the `#`: a slug from a markdown link
+ * (`#my-heading`) or heading text from a wiki link (`[[#My Heading]]`);
+ * `fragmentMatchesHeading` compares both through the one slug rule.
+ */
+function scrollToHeading(fragment: string, behavior: ScrollBehavior = "smooth"): boolean {
+  if (!editor) return false;
   const { doc } = editor.state;
+  let target = -1;
   doc.descendants((node, pos) => {
+    // `return false` below only skips this node's children, not its siblings,
+    // so the latch is what makes the FIRST matching heading win.
+    if (target !== -1) return false;
     if (node.type.name !== "heading") return;
     // The slug rule lives in heading-slug.ts, and only there. Two copies of it
     // is how an anchor link and the heading it points at stop matching.
-    if (headingSlug(node.textContent) === slug) {
-      editor!.commands.setTextSelection(pos + 1);
-      const dom = editor!.view.nodeDOM(pos);
-      if (dom instanceof HTMLElement) {
-        const scroller = document.getElementById("editor-container");
-        if (scroller) {
-          const elRect = dom.getBoundingClientRect();
-          const scrollerRect = scroller.getBoundingClientRect();
-          const targetTop = elRect.top - scrollerRect.top + scroller.scrollTop - 60;
-          scroller.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
-        } else {
-          dom.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
-      }
-      return false;
-    }
+    if (fragmentMatchesHeading(fragment, node.textContent)) target = pos;
+    return false;
   });
+  if (target === -1) return false;
+  editor.commands.setTextSelection(target + 1);
+  const dom = editor.view.nodeDOM(target);
+  if (dom instanceof HTMLElement) {
+    const scroller = document.getElementById("editor-container");
+    if (scroller) {
+      const elRect = dom.getBoundingClientRect();
+      const scrollerRect = scroller.getBoundingClientRect();
+      const targetTop = elRect.top - scrollerRect.top + scroller.scrollTop - 60;
+      scroller.scrollTo({ top: Math.max(0, targetTop), behavior });
+    } else {
+      dom.scrollIntoView({ behavior, block: "start" });
+    }
+  }
+  return true;
 }
 
 window.addEventListener("message", async (event) => {
