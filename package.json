@@ -163,10 +163,10 @@
             "filenamePattern": "vscode-vfs:/**/*.markdown"
           },
           {
-            "filenamePattern": "untitled:/*.md"
+            "filenamePattern": "untitled:/**/*.md"
           },
           {
-            "filenamePattern": "untitled:/*.markdown"
+            "filenamePattern": "untitled:/**/*.markdown"
           }
         ],
         "priority": "default"
