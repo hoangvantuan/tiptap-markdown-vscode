@@ -272,7 +272,10 @@ async function ensureVsCode(version) {
   fs.rmSync(staging, { recursive: true, force: true });
   fs.mkdirSync(staging, { recursive: true });
   console.log("unpacking…");
-  await run("unzip", ["-q", "-o", archive, "-d", staging]);
+  // The linux-* build is a .tar.gz served under the same URL shape; the cache
+  // file keeps its historical name, so pick the unpacker by platform.
+  if (process.platform === "linux") await run("tar", ["-xzf", archive, "-C", staging]);
+  else await run("unzip", ["-q", "-o", archive, "-d", staging]);
   try {
     fs.renameSync(staging, unpacked);
   } catch {
@@ -2809,6 +2812,9 @@ async function main() {
       "--skip-welcome",
       "--disable-updates",
       `--remote-debugging-port=${debugPort}`,
+      // An unpacked linux build's chrome-sandbox is not root-owned 4755, and
+      // Electron aborts before any window rather than run unsandboxed.
+      ...(process.platform === "linux" ? ["--no-sandbox"] : []),
       workspace,
     ],
     {
