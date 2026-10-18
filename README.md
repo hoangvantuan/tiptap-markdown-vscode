@@ -44,6 +44,8 @@ Resizable tables with multi-line cell content. Right-click context menu for row/
 ### Images
 
 - Paste from clipboard or drag-and-drop (auto-saved to configurable folder)
+- Insert from a file with `/` → "Image from file…" or the toolbar; works in Remote SSH and WSL workspaces
+- Optionally download the `https:` images of pasted HTML (`tuiMarkdown.downloadRemoteImagesOnPaste`, off by default)
 - Double-click to edit URL/path
 - Auto-rename files when path changes in markdown
 - Auto-delete files when removed from markdown (moves to Trash)
@@ -123,6 +125,7 @@ WYSIWYG export via headless Chromium (`puppeteer-core`). Requires Chrome, Edge, 
 | `tuiMarkdown.fontSize` | `16` | Editor font size (8–32px) |
 | `tuiMarkdown.highlightCurrentLine` | `true` | Enable cursor line highlight |
 | `tuiMarkdown.imageSaveFolder` | `images` | Folder for pasted images (relative to document). Accepts the variables below, e.g. `images/${fileName}` |
+| `tuiMarkdown.downloadRemoteImagesOnPaste` | `false` | Download `https:` images in pasted HTML into the image folder and link the local copies |
 | `tuiMarkdown.imageFileNameTemplate` | `${name}` | File name for pasted/dropped images, without extension. Variables: `${fileName}` `${name}` `${date}` `${now}` `${random}` `${uuid}` `${ext}` |
 | `tuiMarkdown.autoRenameImages` | `true` | Auto-rename image files when path changes |
 | `tuiMarkdown.autoDeleteImages` | `true` | Auto-delete images removed from markdown (Trash); asks first if another document still uses the image |

@@ -55,6 +55,8 @@ src/
 │   ├── savedPreferences.ts   # ready: replay the saved theme/font/zoom
 │   ├── systemFonts.ts        # System font enumeration (module-level cache)
 │   ├── saveImage.ts          # saveImage + writeImage: the one write path for every image source; the filename it is given is a SUGGESTION, callers use the returned relativePath
+│   ├── pickImage.ts          # pickImage (#173): showOpenDialog + workspace.fs.readFile + writeImage; the bytes never cross the webview
+│   ├── downloadRemoteImages.ts # Opt-in (#174): the setting gate comes BEFORE any request; https only, capped count, writeImage per image
 │   ├── imageName.ts          # Pure: imageSaveFolder / imageFileNameTemplate expansion and the filename/folder guards, run on the EXPANDED value (#172)
 │   ├── imageFormat.ts        # Pure: magic-byte sniffing (PNG/JPEG/GIF/WebP/SVG) and correctExtension (#177)
 │   ├── readClipboardImage.ts # Native clipboard read (osascript / PowerShell / xclip)
@@ -77,6 +79,7 @@ src/
 │   ├── markdown-ast.ts       # Shared MDAST pipeline (parse + mermaid image substitution)
 │   ├── export-docx.ts        # MDAST → DOCX via mdast2docx (lazy-loaded bundle)
 │   ├── export-pdf.ts         # MDAST → HTML → Chromium page.pdf (lazy-loaded bundle)
+│   ├── remote-fetch.ts       # fetchRemoteBytes: size cap on header AND stream, timeout over headers and body, optional https-only (redirect target too) and image content-type; shared by DOCX export and #174
 │   ├── pdf-print.ts          # The ONE page.pdf call: asks for Chromium's outline/tagged options, retries without them if rejected (#168)
 │   ├── vscode-resource.ts    # Detect webview resource URLs and recover the local file path
 │   └── chromium-discovery.ts # Locate Chrome/Edge/Chromium/Brave executable for PDF export
@@ -114,6 +117,7 @@ src/
     ├── heading-collapse-plugin.ts # ProseMirror plugin for heading collapse/expand toggles
     ├── code-block-plugin.ts  # Code block header: language badge dropdown + copy button
     ├── image-edit-plugin.ts  # Double-click image URL editing + expand button; holds no image map of its own since #147
+    ├── image-insert.ts       # Picker anchors mapped through every transaction while the dialog is open, insertImageAt, replaceRemoteImageSrc (#173, #174)
     ├── image-path-translation.ts # Image path translation: owns the image map, its version, the reverse cache and the display/save transforms (#147)
     ├── content-sync.ts        # Content sync: the baseline, the debounce, the flush and the ONE place an `edit` leaves the webview (#148)
     ├── image-lightbox-plugin.ts # Fullscreen image viewer with zoom controls (0.5x-4x)
@@ -159,6 +163,7 @@ harness/                            # Dependency-verification harness (see harne
 ├── placeholder-seam.ts             # Placeholder DOM writes per keystroke (the flicker measurement)
 ├── crlf-seam.ts                    # Line-ending normalization on save (normalizeLineEndings, CRLF/LF/mixed)
 ├── list-keys-seam.ts               # Tab/Shift-Tab list keymap and typed markers (#107)
+├── image-insert-seam.ts            # Markdown written for a picked image (spaces, moved anchor, cancel) and a downloaded remote image (#173, #174)
 ├── block-keys-seam.ts              # Markdown and caret after each block key, including the upstream bindings it leaves alone (#178)
 ├── slash-seam.ts                   # What each slash menu entry inserts, as markdown (#114)
 ├── replace-seam.ts                 # Document text after replace / replaceAll, per case (#115)
@@ -184,6 +189,7 @@ Extension provides these settings via `tuiMarkdown.*` namespace:
 - Font size (8-32px), heading sizes H1-H6 (12-72px)
 - `highlightCurrentLine` (boolean, default: true) - Enable cursor line highlight
 - `imageSaveFolder` (string, default: `images`) - Folder to save pasted images (relative to document); accepts the `imageFileNameTemplate` variables, must stay inside the document folder
+- `downloadRemoteImagesOnPaste` (boolean, default: false) - Download `https:` images of pasted HTML into the image folder (#174). Read at paste time; off means no request at all
 - `imageFileNameTemplate` (string, default: `${name}`) - File name for pasted/dropped images; `${name}` is the suggested name, so the default keeps the pre-#172 naming. A taken name gets `-2`, `-3`
 - `autoRenameImages` (boolean, default: true) - Automatically rename image files when you change the image path in Markdown (only when folder stays the same)
 - `autoDeleteImages` (boolean, default: true) - Automatically delete image files when removed from Markdown (moves to Trash). An image no other document references goes without confirmation; one that another document still references raises a prompt and is kept unless the button is pressed (#126, `src/host/imageUsage.ts`). An image whose filename reappears in another folder is treated as a move and left alone

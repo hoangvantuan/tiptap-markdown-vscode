@@ -44,6 +44,8 @@ Resizable tables with multi-line cell content. Right-click context menu for row/
 ### Images
 
 - Paste from clipboard or drag-and-drop (auto-saved to configurable folder)
+- Insert from a file with `/` → "Image from file…" or the toolbar; works in Remote SSH and WSL workspaces
+- Optionally download the `https:` images of pasted HTML (`tuiMarkdown.downloadRemoteImagesOnPaste`, off by default)
 - Double-click to edit URL/path
 - Auto-rename files when path changes in markdown
 - Auto-delete files when removed from markdown (moves to Trash)
@@ -119,19 +121,20 @@ WYSIWYG export via headless Chromium (`puppeteer-core`). Requires Chrome, Edge, 
 
 ## Configuration
 
-| Setting                             | Default    | Description                                                                                                                                  |
-| ----------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tuiMarkdown.fontSize`              | `16`       | Editor font size (8–32px)                                                                                                                    |
-| `tuiMarkdown.highlightCurrentLine`  | `true`     | Enable cursor line highlight                                                                                                                 |
-| `tuiMarkdown.imageSaveFolder`       | `images`   | Folder for pasted images (relative to document). Accepts the variables below, e.g. `images/${fileName}`                                      |
-| `tuiMarkdown.imageFileNameTemplate` | `${name}`  | File name for pasted/dropped images, without extension. Variables: `${fileName}` `${name}` `${date}` `${now}` `${random}` `${uuid}` `${ext}` |
-| `tuiMarkdown.autoRenameImages`      | `true`     | Auto-rename image files when path changes                                                                                                    |
-| `tuiMarkdown.autoDeleteImages`      | `true`     | Auto-delete images removed from markdown (Trash); asks first if another document still uses the image                                        |
-| `tuiMarkdown.autoHideToolbar`       | `false`    | Auto-hide toolbar when typing                                                                                                                |
-| `tuiMarkdown.listIndent`            | `"editor"` | List and code block indent: `editor` follows VS Code, or `2`, `4`, `tab`                                                                     |
-| `tuiMarkdown.chromiumPath`          | `""`       | Chrome/Chromium path for PDF export                                                                                                          |
-| `tuiMarkdown.exportPageSize`        | `A4`       | Page size for PDF/DOCX export (`A4` or `Letter`)                                                                                             |
-| `tuiMarkdown.headingSizes.h1`–`h6`  | `32`–`16`  | Heading font sizes (12–72px)                                                                                                                 |
+| Setting                                   | Default    | Description                                                                                                                                  |
+| ----------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tuiMarkdown.fontSize`                    | `16`       | Editor font size (8–32px)                                                                                                                    |
+| `tuiMarkdown.highlightCurrentLine`        | `true`     | Enable cursor line highlight                                                                                                                 |
+| `tuiMarkdown.imageSaveFolder`             | `images`   | Folder for pasted images (relative to document). Accepts the variables below, e.g. `images/${fileName}`                                      |
+| `tuiMarkdown.downloadRemoteImagesOnPaste` | `false`    | Download `https:` images in pasted HTML into the image folder and link the local copies                                                      |
+| `tuiMarkdown.imageFileNameTemplate`       | `${name}`  | File name for pasted/dropped images, without extension. Variables: `${fileName}` `${name}` `${date}` `${now}` `${random}` `${uuid}` `${ext}` |
+| `tuiMarkdown.autoRenameImages`            | `true`     | Auto-rename image files when path changes                                                                                                    |
+| `tuiMarkdown.autoDeleteImages`            | `true`     | Auto-delete images removed from markdown (Trash); asks first if another document still uses the image                                        |
+| `tuiMarkdown.autoHideToolbar`             | `false`    | Auto-hide toolbar when typing                                                                                                                |
+| `tuiMarkdown.listIndent`                  | `"editor"` | List and code block indent: `editor` follows VS Code, or `2`, `4`, `tab`                                                                     |
+| `tuiMarkdown.chromiumPath`                | `""`       | Chrome/Chromium path for PDF export                                                                                                          |
+| `tuiMarkdown.exportPageSize`              | `A4`       | Page size for PDF/DOCX export (`A4` or `Letter`)                                                                                             |
+| `tuiMarkdown.headingSizes.h1`–`h6`        | `32`–`16`  | Heading font sizes (12–72px)                                                                                                                 |
 
 
 ## Themes
