@@ -4,12 +4,15 @@ Cánh chánh: `wave11/o2-editor-schemes`, tách từ `develop` @ `f2bd057`.
 
 ## 1. Thay đổi
 
-Đúng hai khối được sở hữu, không đụng khối khác của `package.json`:
+Trong `package.json`, đúng hai khối được sở hữu, không đụng khối khác:
 
 - `contributes.customEditors[].selector`: `*.md` / `*.markdown` (mọi scheme) → allowlist 4 scheme,
   cả `.md` lẫn `.markdown`.
 - `contributes.configurationDefaults`: **không đổi** (denylist `{git,gitlens,git-graph}:` giữ nguyên
   làm lớp thứ hai, theo quyết định đã có).
+
+Ngoài ra, sau khi đo phát hiện lệnh #122 vô hiệu chính allowlist này, `src/host/defaultEditor.ts`
+được sửa theo phương án C mà điều phối viên chọn — xem §4.
 
 `sed -n '142,175p' package.json` (sau thay đổi):
 
@@ -88,13 +91,16 @@ Cánh chánh: `wave11/o2-editor-schemes`, tách từ `develop` @ `f2bd057`.
          "priority": "default"
 ```
 
-Không có file `.ts` nào của extension bị sửa: selector nằm trong manifest, không ai trong `src/`
-đọc nó. Bằng chứng:
+Selector nằm trong manifest và không file `.ts` nào của extension đọc nó, nên phần selector là
+thay đổi thuần manifest:
 
 ```
 $ grep -rn "filenamePattern" --include=*.ts . | grep -v node_modules | grep -v "^./out/"
 (rỗng, exit=1)
 ```
+
+Ngoài manifest có đúng **hai** file khác bị sửa, cùng một commit `1aadb95`: `src/host/defaultEditor.ts`
+(cách lệnh #122 ghi association — §4) và `test/default-editor.test.ts` (unit test của nó).
 
 ## 2. Nguồn: cú pháp `filenamePattern` CÓ scheme, và scheme được đưa vào đích so khớp
 
@@ -306,11 +312,12 @@ PASS  workbench.editorAssociations decides which editor opens .md — noSetting=
   chứng minh `file:` vẫn vào custom editor).
 - `untitled(untitled:Untitled-1)=text` ở cả hai vế ⇒ không hồi quy cho tài liệu chưa lưu (xem §3.2).
 
-## 4. `tuiMarkdown.useAsDefaultEditor` CÓ vô hiệu allowlist — cần quyết định (TASK điểm 3)
+## 4. `tuiMarkdown.useAsDefaultEditor` CÓ vô hiệu allowlist — đã sửa theo phương án C (TASK điểm 3)
 
 Đo: `cline-withAssoc=tuiMarkdown.editor` ở vế SAU. Nghĩa là khi workspace có
 `"*.md": "tuiMarkdown.editor"` (đúng thứ lệnh #122 ghi), một tài liệu `cline:` **vẫn** mở WYSIWYG,
-tức allowlist bị vượt. Nguồn, 1.85 `editorResolverService.ts` (`sed -n '346,357p'`):
+tức allowlist bị vượt. Nguồn, 1.85 `src/vs/workbench/services/editor/browser/editorResolverService.ts`
+(`sed -n '346,357p'`):
 
 ```ts
 	private findMatchingEditors(resource: URI): RegisteredEditor[] {
@@ -335,24 +342,136 @@ sao `a diff of two .md files…` vẫn xanh: diff đi qua nhánh riêng và khô
 
 Đây **không phải** hồi quy do #169 gây ra — trước thay đổi, `cline:` cũng mở WYSIWYG với association đó
 (vế `cline-withAssoc` ở cả hai lần đo đều là `tuiMarkdown.editor`). Nhưng allowlist chỉ là **mặc định**,
-nó không tự bảo vệ trước một association do chính lệnh của extension này ghi ra. Theo TASK, tôi dừng ở
-đây và hỏi, chưa sửa `src/host/defaultEditor.ts`.
+nó không tự bảo vệ trước một association do chính lệnh của extension này ghi ra.
 
-Ba phương án, đều là việc sửa `src/host/defaultEditor.ts` + `test/default-editor.test.ts`
-(test đó khẳng định đúng JSON mà lệnh ghi ra):
+Điều phối viên chọn **phương án C, giới hạn hẹp**, và nó đã được làm (commit `1aadb95`).
 
-- **A — không sửa gì.** Allowlist là mặc định; một `*.md → tuiMarkdown.editor` do chính người dùng (hoặc
-  do lệnh #122) đặt vẫn thắng, đúng như VS Code thiết kế và đúng như trước #169. Chỉ ghi rõ trong
-  CHANGELOG.
-- **B — `useAsDefaultEditor` ghi association CÓ SCHEME** (`file:/**/*.md`, `vscode-remote:/**/*.md`,
-  `vscode-vfs:/**/*.md`, `untitled:/**/*.md` thay cho `*.md`), và `getCurrentWorkspaceMode` đọc được cả
-  dạng cũ. Chặn được việc vượt allowlist. Đổi hợp đồng của lệnh #122: một workspace đã có
-  `*.md: tuiMarkdown.editor` từ trước sẽ không còn được lệnh nhận ra là "wysiwyg" (trừ khi ta dạy nó đọc
-  cả hai dạng, nhưng khi đó lệnh "Reset" cũng phải xoá cả hai).
-- **C — B, cộng gỡ khóa `*.md`/`*.markdown` cũ mà chính lệnh này đã ghi.** Sạch nhất về hành vi, nhưng
-  là động vào khóa cấu hình trong settings của người dùng.
+### 4.1 Dòng nguồn được yêu cầu trích dẫn
 
-Tôi nghiêng về **B**.
+`src/vs/workbench/services/editor/common/editorResolverService.ts` @ 1.85.0, hai dòng quyết định
+toàn bộ cơ chế, đánh số đúng như trong file:
+
+```
+$ grep -n "matchOnPath\|const target = matchOnPath" vs/workbench/services/editor/common/editorResolverService.ts
+221:	const matchOnPath = typeof globPattern === 'string' && globPattern.indexOf(posix.sep) >= 0;
+222:	const target = matchOnPath ? `${resource.scheme}:${resource.path}` : basename(resource);
+```
+
+Tức: một pattern **có** `/` được so với `${scheme}:${path}`; một pattern **không** có `/` được so với
+basename. Cùng đường đó, VS Code 1.85 `src/vs/workbench/services/editor/browser/editorResolverService.ts`:
+
+```
+$ grep -n "private findMatchingEditors\|The user setting should be respected" vs/workbench/services/editor/browser/editorResolverService.ts
+346:	private findMatchingEditors(resource: URI): RegisteredEditor[] {
+347:		// The user setting should be respected even if the editor doesn't specify that resource in package.json
+```
+
+### 4.2 Đã làm trong `src/host/defaultEditor.ts`
+
+1. `computeUpdatedAssociations` ghi **tám khoá có scheme** thay cho `*.md`:
+
+```
+file:/**/*.md  vscode-remote:/**/*.md  vscode-vfs:/**/*.md  untitled:/**/*.md
+file:/**/*.markdown  vscode-remote:/**/*.markdown  vscode-vfs:/**/*.markdown  untitled:/**/*.markdown
+```
+
+2. `getCurrentWorkspaceMode` đọc **cả hai** cách viết (khoá có scheme và `*.md`/`*.markdown` cũ), nên
+   workspace cấu hình trước #169 vẫn được nhận là wysiwyg/text thay vì bị báo nhầm là default.
+3. Xoá khoá **chỉ khi** khoá là của lệnh này (`ALL_OWNED_KEYS`) **và** giá trị là một trong hai giá trị
+   lệnh này ghi (`tuiMarkdown.editor`, `default`). Mọi giá trị khác trên mọi khoá — kể cả khi reset —
+   được giữ nguyên. Đây là ranh giới "lệnh dọn khoá của chính nó", không phải sửa cấu hình tuỳ ý.
+
+Lưu ý phụ: vì reset giờ chỉ xoá khoá của chính nó, nhãn của mục QuickPick reset đổi thành
+`"Remove the markdown associations this extension wrote and inherit default behavior"` — nhãn cũ
+("Remove workspace associations for markdown") thành sai.
+
+### 4.3 Răng của ba luật, đếm từng ca đỏ
+
+Mỗi luật được phá đúng một lần, chạy `npm test`, khôi phục, chạy lại. `test/default-editor.test.ts`
+được viết lại: **98 → 108 test**.
+
+| Luật bị phá | Cách phá | Kết quả |
+|---|---|---|
+| (1) ghi khoá có scheme | `computeUpdatedAssociations` trả lại `{ ...current, "*.md": value, "*.markdown": value }` | **9 ca đỏ** (`ℹ pass 99 ℹ fail 9`) |
+| (2) đọc cả hai cách viết | `getCurrentWorkspaceMode` đọc lại `assoc["*.md"]` | **2 ca đỏ** (`ℹ pass 106 ℹ fail 2`) |
+| (3) chỉ xoá khoá của mình | `isOwnedAssociation` bỏ kiểm tra giá trị | **3 ca đỏ** (`ℹ pass 105 ℹ fail 3`) |
+| (1) lại, ở tầng floor | cùng cách phá (1), chạy `verify:vscode-floor` | **1 ca đỏ** (xem §7) |
+
+Output thật của lần phá luật (1), `npm test`:
+
+```
+✖ sets Tiptap Markdown editor on the four selected schemes for wysiwyg mode
+✖ sets default text editor on the four selected schemes for text mode
+✖ never writes a bare `*.md`, which VS Code matches on every scheme
+✖ replaces this command's own pre-#169 bare keys, in both spellings
+✖ leaves a bare `*.md` alone when its value is not one this command writes
+✖ writes default text editor associations to .vscode/settings.json on disk
+✖ writes Tiptap Markdown editor associations to .vscode/settings.json on disk
+✖ cleans up a bare `*.md` this command wrote before, on disk
+✖ keeps a bare `*.md` that carries somebody else's editor, on disk
+ℹ tests 108
+ℹ pass 99
+ℹ fail 9
+```
+
+Luật (2):
+
+```
+✖ reads the scheme-qualified spelling
+✖ reads the pre-#169 bare spelling too, so an old workspace is still recognised
+ℹ tests 108
+ℹ pass 106
+ℹ fail 2
+```
+
+Luật (3):
+
+```
+✖ leaves a bare `*.md` alone when its value is not one this command writes
+✖ reset does not delete a key whose value is not ours
+✖ keeps a bare `*.md` that carries somebody else's editor, on disk
+ℹ tests 108
+ℹ pass 105
+ℹ fail 3
+```
+
+Khôi phục: `ℹ tests 108 / ℹ pass 108 / ℹ fail 0`.
+
+### 4.4 Đo lại trên floor với association MỚI (bằng chứng yêu cầu)
+
+Check mới đã **commit** vào `harness/vscode-floor/extension-tests.ts` (điều phối viên cho phép sửa
+`harness/vscode-floor/` cho phần này) — commit `84acaff`. Nó đọc association từ chính
+`computeUpdatedAssociations` chứ không chép tay, nên nếu lệnh quay lại `*.md` thì check đỏ:
+
+```
+PASS  the workspace association leaves other schemes alone and still opens file: markdown here — keys=[file:/**/*.md vscode-remote:/**/*.md vscode-vfs:/**/*.md untitled:/**/*.md file:/**/*.markdown vscode-remote:/**/*.markdown vscode-vfs:/**/*.markdown untitled:/**/*.markdown] cline=text file=tuiMarkdown.editor; cline must be the text editor, file: must still be this one
+64 checks: 64 passed, 0 failed
+```
+
+`cline=text` (không còn bị giành) và `file=tuiMarkdown.editor` (không mất editor cho file thật) —
+đúng hai điều kiện điều phối viên nêu, đo trên VS Code sàn thật.
+
+Răng của check này, đo bằng cách phá `computeUpdatedAssociations` trở lại `*.md` rồi chạy floor:
+
+```
+FAIL  the workspace association leaves other schemes alone and still opens file: markdown here — keys=[*.md *.markdown] cline=tuiMarkdown.editor file=tuiMarkdown.editor; cline must be the text editor, file: must still be this one
+64 checks: 63 passed, 1 failed
+```
+
+Một ca đỏ, và chi tiết cho thấy đúng cơ chế: khoá `*.md` làm `cline:` trở lại custom editor.
+
+### 4.5 Floor check cũ vẫn xanh sau khi đổi cách ghi association
+
+Hai check mà TASK yêu cầu giữ xanh, ở lượt cuối:
+
+```
+PASS  a diff of two .md files opens as a diff editor, not this custom editor — noSetting=diff "*.md":"tuiMarkdown.editor"=diff; Git Graph's own diff view is NOT covered here and stays a hand check
+PASS  workbench.editorAssociations decides which editor opens .md — noSetting=tuiMarkdown.editor "*.md":"default"=text "*.md":"tuiMarkdown.editor"=tuiMarkdown.editor
+PASS  the workspace association leaves other schemes alone and still opens file: markdown here — keys=[file:/**/*.md vscode-remote:/**/*.md vscode-vfs:/**/*.md untitled:/**/*.md file:/**/*.markdown vscode-remote:/**/*.markdown vscode-vfs:/**/*.markdown untitled:/**/*.markdown] cline=text file=tuiMarkdown.editor; cline must be the text editor, file: must still be this one
+```
+
+Hai check này tự đặt `*.md` trong `workbench.editorAssociations` để đo **VS Code** còn tôn trọng
+association không. Sau #169 chúng vẫn xanh: `*.md` vẫn hợp lệ, chỉ là không phải thứ lệnh của ta ghi nữa.
 
 ## 5. Chưa kiểm được
 
@@ -364,6 +483,9 @@ Tôi nghiêng về **B**.
 - **`vscode-vfs:` thật** (virtual workspace github.dev): lý luận như trên, chưa mở workspace ảo nào.
 - **`untitled:` gắn đường dẫn liên kết**: chưa tạo được từ extension host (không có API công khai tạo
   untitled-with-associated-resource trên 1.85); bằng chứng là bảng glob §3.1.
+- **Hệ quả của việc dọn khoá `*.md`**: chưa đo trên máy thật một workspace đã chạy lệnh ở 3.4.x rồi
+  chạy lại ở bản này; bằng chứng là unit test trên JSON thật ghi ra đĩa (`test/default-editor.test.ts`,
+  mục `useAsDefaultEditor (disk verification)`), cộng với hàm `computeUpdatedAssociations` thuần.
 - **Diff view của Git Graph** (#48): vẫn là kiểm tra tay, không thay đổi so với trước.
 
 ## 6. Câu chữ đề xuất cho tài liệu gốc (điều phối viên áp dụng sau merge)
@@ -377,19 +499,24 @@ Tôi nghiêng về **B**.
   review view — opens in the built-in text editor unless you set `workbench.editorAssociations`
   yourself. This replaces a per-extension denylist that had to grow with every new diff scheme.
   (#169)
+- **Choose Default Editor for Markdown in this Workspace** now records the choice per scheme
+  instead of as a bare `*.md`, which VS Code applied to every scheme. Running it once in a
+  workspace replaces the `*.md` entry it wrote earlier; a `*.md` you set yourself, to another
+  editor, is left alone. (#169)
 ```
 
 ### README.md
 
-Không có mục nào về diff/Git trong README cần sửa: README mô tả tính năng, không mô tả scheme. Nếu
-muốn nói tới hành vi này, thêm vào phần đang nói về lệnh **Choose Default Editor for Markdown in
+Không có mục nào về diff/Git trong README cần sửa: README mô tả tính năng, không mô tả scheme. Có một
+đoạn cần sửa vì nó nói sai sau #169 — phần đang nói về lệnh **Choose Default Editor for Markdown in
 this Workspace** (dòng ~98):
 
 ```md
 The choice is written to `workbench.editorAssociations` in the workspace settings,
-which is what makes markdown open that way for every source, including the virtual
-documents of other extensions. Without it, only files on disk, remote files and
-unsaved documents with a path open here.
+once per scheme — the same four the editor handles itself (`file:`,
+`vscode-remote:`, `vscode-vfs:` and unsaved documents with a path), so a git diff or
+another extension's virtual markdown document is not affected by it. "Reset" removes
+the entries this extension wrote.
 ```
 
 ### AGENTS.md
@@ -406,33 +533,35 @@ và cái bẫy `*` không qua dấu `/`. Đề xuất thêm vào mục *Conventi
   `untitled:/home/u/notes/readme.md`; and a bare `untitled:Untitled-N` (an unsaved document with
   no path) matches no pattern at all, before or after #169. The `{git,gitlens,git-graph}` denylist
   in `configurationDefaults` is kept as a second layer
+- `workbench.editorAssociations` uses the SAME matcher, and it outranks a custom editor's own
+  selector ("the user setting should be respected even if the editor doesn't specify that resource
+  in package.json", `editorResolverService.ts` @1.85). So `src/host/defaultEditor.ts` must write the
+  same four schemes: a bare `*.md` from this extension would re-open every hole #169 closed. It
+  deletes only its OWN keys — the eight it writes plus the two pre-#169 bare spellings, and only
+  when the value is `tuiMarkdown.editor` or `default`; any other value on any key survives, reset
+  included
 ```
 
-## 7. Đặc tả floor check đề xuất (ràng buộc 8: tôi không được thêm)
+## 7. Floor check (đã thêm, không còn là đặc tả)
 
-Hai check, cùng một hàm đo. Cần một `TextDocumentContentProvider` cho một scheme lạ (không trùng
-scheme nào VS Code đã có), mở nó bằng `vscode.open` (không `openWith`, để đi qua resolver), rồi đọc
-`vscode.window.tabGroups.activeTabGroup.activeTab.input.viewType` — nếu là chuỗi thì là custom
-editor, nếu chỉ có `uri` thì là text editor. Đây chính xác là probe tôi đã chạy tạm.
+Điều phối viên cho phép sửa `harness/vscode-floor/` cho phần này, và cả hai check dưới đây đã được
+thêm và commit (`84acaff`). Xem §3.3 (check tạm, đã gỡ) và §4.4 (check thật, đã giữ).
 
-1. **`a markdown document from another extension's scheme opens as a text editor`**
-   - Thao tác: đăng ký provider `cline` trả về `# hello\n\n…`; `closeAllEditors`; `vscode.open`
-     `cline:/notes/readme.md`; chờ ~1.5s; đọc viewType.
-   - Khẳng định: viewType KHÔNG phải `tuiMarkdown.editor` (kỳ vọng `text`).
-   - Phá gì thì nó đỏ: đổi một selector về `*.md`, hoặc xoá hết khối `selector`. Trước #169 nó đỏ
-     ngay với `*.md` (đo được: `cline-noSetting=tuiMarkdown.editor`).
+1. **TẠM, đã gỡ** — `TEMP #169 scheme probe`: đo trước/sau bằng cách chép lại association. Chỉ để đo,
+   không giữ: nó chép tay association nên không bắt được hồi quy của `defaultEditor.ts`.
 
-2. **`workbench.editorAssociations does not re-open another scheme in this editor`** (chỉ thêm sau
-   khi §4 có quyết định; nếu giữ nguyên hành vi thì KHÔNG thêm, vì nó sẽ đỏ)
-   - Thao tác: cùng provider; set workspace `editorAssociations` = `{"*.md": "tuiMarkdown.editor"}`;
-     `vscode.open` lại; đọc viewType.
-   - Khẳng định: viewType **không** phải `tuiMarkdown.editor` (đây là hành vi sửa được nếu #122 ghi
-     association có scheme).
-   - Khẳng định phải kèm: sau khi đặt lại association, `file:` vẫn mở `tuiMarkdown.editor` — không
-     thì cách chặn đã hỏng hết luôn.
+2. **ĐÃ GIỮ** — `the workspace association leaves other schemes alone and still opens file: markdown here`:
+   - Đăng ký `TextDocumentContentProvider` cho scheme `cline` (không trùng scheme nào VS Code đã có).
+   - Association lấy từ `computeUpdatedAssociations({}, "wysiwyg")` — **không** chép tay — rồi đặt vào
+     `workbench.editorAssociations` ở scope workspace.
+   - Mở `cline:/notes/readme.md` bằng `vscode.open` (không `openWith`, để đi qua resolver), chờ,
+     đọc `vscode.window.tabGroups.activeTabGroup.activeTab.input.viewType`: phải **không** phải
+     `tuiMarkdown.editor`.
+   - Mở luôn `file:` .md của floor: phải **là** `tuiMarkdown.editor`. Vế này là để một cách "chặn" mà
+     làm hỏng luôn `file:` sẽ không lọt qua — và nó đã đỏ đúng một lần khi tôi phá lệnh (output ở §4.4).
 
-Không thêm check nào cho `untitled:` vì không tạo được untitled-with-associated-resource từ extension
-host; đó là lý do §5 ghi "chưa kiểm được".
+Không thêm check cho `untitled:` vì không tạo được untitled-with-associated-resource từ extension host;
+đó là lý do §5 ghi "chưa kiểm được".
 
 ## 8. Các lệnh kiểm tra trước khi kết thúc (output thật)
 
@@ -449,9 +578,9 @@ Build complete (production)
 webview bundle: 1028747 B / 1100000 B budget
 
 $ npm test
-ℹ tests 98
+ℹ tests 108
 ℹ suites 27
-ℹ pass 98
+ℹ pass 108
 ℹ fail 0
 
 $ npm run roundtrip
@@ -465,22 +594,35 @@ $ git status --short harness/
 
 $ PUPPETEER_EXECUTABLE_PATH=$HOME/.cache/puppeteer-floor/chrome-nosandbox \
     xvfb-run -a -s "-screen 0 1920x1080x24" npm run verify:vscode-floor
-63 checks: 63 passed, 0 failed
+64 checks: 64 passed, 0 failed
 (exit=0)
 
 $ MB=$(git merge-base develop HEAD); git diff $MB..HEAD --stat -- harness/fixtures/synthetic/
 (rỗng — không fixture cũ nào bị đụng)
 ```
 
-Hai check floor mà TASK yêu cầu giữ xanh, ở lượt cuối (sau khi đã gỡ probe):
+63 → 64 là do check mới ở §4.4; 98 → 108 test là do `test/default-editor.test.ts` viết lại.
+
+Ba check floor liên quan tới association, ở lượt cuối:
 
 ```
 PASS  a diff of two .md files opens as a diff editor, not this custom editor — noSetting=diff "*.md":"tuiMarkdown.editor"=diff; Git Graph's own diff view is NOT covered here and stays a hand check
 PASS  workbench.editorAssociations decides which editor opens .md — noSetting=tuiMarkdown.editor "*.md":"default"=text "*.md":"tuiMarkdown.editor"=tuiMarkdown.editor
+PASS  the workspace association leaves other schemes alone and still opens file: markdown here — keys=[file:/**/*.md vscode-remote:/**/*.md vscode-vfs:/**/*.md untitled:/**/*.md file:/**/*.markdown vscode-remote:/**/*.markdown vscode-vfs:/**/*.markdown untitled:/**/*.markdown] cline=text file=tuiMarkdown.editor; cline must be the text editor, file: must still be this one
 ```
 
-Số ca đỏ của các phép kiểm mới trong báo cáo này: **1/1** (bảng glob phải phân biệt được `**` với
-`*`, hàng `untitled://:/home/u/notes/readme.md` cột `[4]` = `.` và cột `[3]` = `Y`; và probe floor
-đọc `tuiMarkdown.editor` trước, `text` sau). Không thêm fixture, unit test hay seam nào — thay đổi
-nằm trong manifest, không có hàm nào của repo để unit test, và cả hai hành vi nó quyết định đều chỉ
-tồn tại trong editor resolver của VS Code.
+Tổng số ca đỏ đo được cho các phép kiểm mới trong báo cáo này:
+
+| Phép kiểm | Cách phá | Số ca đỏ |
+|---|---|---|
+| Bảng glob phải phân biệt `**` với `*` | (đã có sẵn: cột `[4]` vs `[3]` ở hàng `untitled://:/home/u/notes/readme.md`) | 1 dòng lệch |
+| Probe floor trước/sau | (đo trước và sau, cùng host) | 1/1 (trước: `tuiMarkdown.editor`) |
+| Luật (1) ghi khoá có scheme — unit | trả lại `{...current, "*.md": value, "*.markdown": value}` | **9** |
+| Luật (2) đọc cả hai cách viết — unit | đọc lại `assoc["*.md"]` | **2** |
+| Luật (3) chỉ xoá khoá của mình — unit | bỏ kiểm tra giá trị | **3** |
+| Luật (1) lại, ở tầng floor | cùng cách phá (1) | **1** |
+
+Không thêm fixture hay seam nào. `test/default-editor.test.ts` là unit test thuần cho hàm thuần, nên
+đúng theo bảng "loại kiểm" của AGENTS.md; selector trong manifest thì không có hàm nào của repo để
+unit test, và hành vi nó quyết định chỉ tồn tại trong editor resolver của VS Code — đó là lý do nó
+đo bằng floor chứ không bằng `npm test`.
