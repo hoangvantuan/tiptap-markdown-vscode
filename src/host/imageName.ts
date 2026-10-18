@@ -29,11 +29,14 @@
 export const DEFAULT_IMAGE_SAVE_FOLDER = "images";
 
 /**
- * Reproduces the pre-#172 name, `image-<Date.now()>-<6 base36>.<ext>`, so that
- * a user who never touches the setting sees no change. `.ext` is appended
- * automatically (see `expandFileName`).
+ * The suggested name's stem, unchanged, so that a user who never touches the
+ * setting sees no change: a paste arrives suggested as
+ * `image-<Date.now()>-<6 base36>.<ext>` (the webview still generates that) and
+ * keeps it, a dropped `photo.png` is saved as `photo.png`. `.ext` is appended
+ * automatically (see `expandFileName`). The one difference from before is that
+ * a taken name now gets `-2`, `-3` instead of being overwritten.
  */
-export const DEFAULT_IMAGE_FILENAME_TEMPLATE = "image-${now}-${random}";
+export const DEFAULT_IMAGE_FILENAME_TEMPLATE = "${name}";
 
 export interface TemplateVars {
   readonly fileName: string;

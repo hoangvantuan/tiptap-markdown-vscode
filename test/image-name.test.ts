@@ -3,8 +3,11 @@
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import {
   DEFAULT_IMAGE_FILENAME_TEMPLATE,
+  DEFAULT_IMAGE_SAVE_FOLDER,
   buildTemplateVars,
   checkSaveFolder,
   expandFileName,
@@ -136,8 +139,34 @@ describe("expandTemplate / expandFileName (#172)", () => {
     assert.equal(r.value, "cost$5");
   });
 
-  it("the default template reproduces image-<now>-<6 base36>.<ext>", () => {
-    const r = expandFileName(DEFAULT_IMAGE_FILENAME_TEMPLATE, vars());
+  it("the default template gives the suggested name back unchanged", () => {
+    const cases: Array<[suggested: string, ext: string]> = [
+      ["image-1712345678901-k3j9x2.png", "png"], // what the webview generates for a paste
+      ["image-1712345678901-k3j9x2.jpeg", "jpeg"],
+      ["photo.png", "png"], // a dropped file
+      ["My holiday photo.jpg", "jpg"],
+      ["a.b.png", "png"],
+      ["IMG_0001.PNG", "PNG"],
+    ];
+    for (const [suggested, ext] of cases) {
+      const r = expandFileName(DEFAULT_IMAGE_FILENAME_TEMPLATE, vars("Notes.md", suggested, ext));
+      assert.ok(r.ok);
+      assert.equal(r.value, suggested);
+    }
+  });
+
+  it("package.json declares the same defaults as the code falls back to", () => {
+    // `npm test` runs from the repo root. Two copies of a default drift; this
+    // is what keeps the Settings UI and the blank-setting fallback in step.
+    const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"));
+    const props = pkg.contributes.configuration.properties;
+    assert.equal(props["tuiMarkdown.imageFileNameTemplate"].default, DEFAULT_IMAGE_FILENAME_TEMPLATE);
+    assert.equal(props["tuiMarkdown.imageSaveFolder"].default, DEFAULT_IMAGE_SAVE_FOLDER);
+  });
+
+  it("the default template is ${name}, and ${now}/${random} stay available to a user template", () => {
+    assert.equal(DEFAULT_IMAGE_FILENAME_TEMPLATE, "${name}");
+    const r = expandFileName("image-${now}-${random}", vars());
     assert.ok(r.ok);
     assert.match(r.value, /^image-\d+-[0-9a-z]{6}\.png$/);
   });

@@ -246,8 +246,9 @@ async function getBase64FromUrl(url: string): Promise<string | null> {
 
 // A SUGGESTION only (#172, #177): the host's `writeImage` takes the extension
 // from here (and corrects it against the bytes) and names the file from
-// `tuiMarkdown.imageFileNameTemplate`. The savedPath in `imageSaved` is the
-// real name; never rebuild it from what was sent.
+// `tuiMarkdown.imageFileNameTemplate`, whose default `${name}` keeps this stem,
+// so a paste is still `image-<now>-<random>`. The savedPath in `imageSaved` is
+// the real name; never rebuild it from what was sent.
 function generateImageFilename(mimeType: string): string {
   const subtype = mimeType.split("/")[1]?.replace(/;.*/, "") || "png";
   const ext = subtype.split("+")[0]; // Handle compound types like svg+xml

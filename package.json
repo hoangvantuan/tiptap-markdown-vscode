@@ -96,8 +96,8 @@
         },
         "tuiMarkdown.imageFileNameTemplate": {
           "type": "string",
-          "default": "image-${now}-${random}",
-          "markdownDescription": "File name for pasted and dropped images, without the extension (it is appended, or place `${ext}` yourself). Variables: `${fileName}` the document name without its extension; `${name}` the original file name of a dropped image without its extension; `${date}` today as YYYY-MM-DD; `${now}` milliseconds since the epoch; `${random}` six random base36 characters; `${uuid}` a random UUID; `${ext}` the image's extension, taken from its content, not from its label. The default `image-${now}-${random}` keeps the old naming. A name already taken gets `-2`, `-3`... instead of being overwritten."
+          "default": "${name}",
+          "markdownDescription": "File name for pasted and dropped images, without the extension (it is appended, or place `${ext}` yourself). Variables: `${fileName}` the document name without its extension; `${name}` the name the image arrived with, without its extension (the file name of a dropped or picked image; `image-<now>-<random>` for a paste); `${date}` today as YYYY-MM-DD; `${now}` milliseconds since the epoch; `${random}` six random base36 characters; `${uuid}` a random UUID; `${ext}` the image's extension, taken from its content, not from its label. The default `${name}` keeps the old naming: a paste is saved as `image-<now>-<random>`, a dropped `photo.png` as `photo.png`. For a timestamped name set e.g. `${fileName}-${date}-${random}`. A name already taken gets `-2`, `-3`... instead of being overwritten."
         },
         "tuiMarkdown.autoRenameImages": {
           "type": "boolean",

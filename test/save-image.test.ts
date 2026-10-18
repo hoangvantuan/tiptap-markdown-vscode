@@ -62,27 +62,47 @@ describe("writeImage (#172, #177)", () => {
   }
 
   describe("defaults keep today's behaviour", () => {
-    it("saves as images/image-<now>-<6 base36>.<ext>", async () => {
-      const before = Date.now();
-      const saved = await writeImage(docNamed("note.md"), "image-1-abc.png", PNG);
+    // A paste is suggested as the webview's generateImageFilename() shape.
+    it("a paste keeps its generated name: images/image-<now>-<6 base36>.<ext>", async () => {
+      const generated = `image-${Date.now()}-${Math.random().toString(36).substring(2, 8)}.png`;
+      const saved = await writeImage(docNamed("note.md"), generated, PNG);
       assert.ok(saved);
+      assert.equal(saved.relativePath, `images/${generated}`);
       assert.match(saved.relativePath, /^images\/image-\d+-[0-9a-z]{6}\.png$/);
-      const stamp = Number(/image-(\d+)-/.exec(saved.relativePath)![1]);
-      assert.ok(stamp >= before && stamp <= Date.now());
       assert.deepEqual(fs.readFileSync(saved.fileUri.fsPath), Buffer.from(PNG));
       assert.equal(saved.fileUri.fsPath, path.join(tmpDir, saved.relativePath));
     });
 
+    it("a dropped file keeps its own name", async () => {
+      const saved = await writeImage(docNamed("note.md"), "photo.png", PNG);
+      assert.equal(saved!.relativePath, "images/photo.png");
+      const spaced = await writeImage(docNamed("note.md"), "My holiday photo.jpg", JPEG);
+      assert.equal(spaced!.relativePath, "images/My holiday photo.jpg");
+    });
+
+    it("a dropped file of an existing name gets -2 instead of overwriting it", async () => {
+      const first = await writeImage(docNamed("note.md"), "photo.png", PNG);
+      const second = await writeImage(docNamed("note.md"), "photo.png", Uint8Array.from([...PNG, 9]));
+      assert.equal(first!.relativePath, "images/photo.png");
+      assert.equal(second!.relativePath, "images/photo-2.png");
+      assert.deepEqual(fs.readFileSync(first!.fileUri.fsPath), Buffer.from(PNG));
+    });
+
     it("blank settings fall back to the defaults", async () => {
       settings({ "tuiMarkdown.imageSaveFolder": "  ", "tuiMarkdown.imageFileNameTemplate": "" });
-      const saved = await writeImage(docNamed("note.md"), "x.png", PNG);
-      assert.match(saved!.relativePath, /^images\/image-\d+-[0-9a-z]{6}\.png$/);
+      const saved = await writeImage(docNamed("note.md"), "photo.png", PNG);
+      assert.equal(saved!.relativePath, "images/photo.png");
     });
 
     it("'.' still means the document folder", async () => {
       settings({ "tuiMarkdown.imageSaveFolder": "." });
-      const saved = await writeImage(docNamed("note.md"), "x.png", PNG);
-      assert.match(saved!.relativePath, /^image-\d+-[0-9a-z]{6}\.png$/);
+      const saved = await writeImage(docNamed("note.md"), "photo.png", PNG);
+      assert.equal(saved!.relativePath, "photo.png");
+    });
+
+    it("a corrected extension still applies under the default (WebP named .png)", async () => {
+      const saved = await writeImage(docNamed("note.md"), "photo.png", WEBP);
+      assert.equal(saved!.relativePath, "images/photo.webp");
     });
   });
 
@@ -90,7 +110,7 @@ describe("writeImage (#172, #177)", () => {
     it("expands variables in the folder: images/${fileName}", async () => {
       settings({ "tuiMarkdown.imageSaveFolder": "images/${fileName}" });
       const saved = await writeImage(docNamed("My Note.md"), "x.png", PNG);
-      assert.match(saved!.relativePath, /^images\/My Note\/image-\d+-[0-9a-z]{6}\.png$/);
+      assert.equal(saved!.relativePath, "images/My Note/x.png");
       assert.equal(fs.existsSync(path.join(tmpDir, saved!.relativePath)), true);
     });
 
@@ -112,14 +132,14 @@ describe("writeImage (#172, #177)", () => {
     it("trailing slash in the folder does not leave a double slash", async () => {
       settings({ "tuiMarkdown.imageSaveFolder": "pics/" });
       const saved = await writeImage(docNamed("note.md"), "x.png", PNG);
-      assert.match(saved!.relativePath, /^pics\/image-/);
+      assert.equal(saved!.relativePath, "pics/x.png");
     });
 
     it("a document name with `..` and `:` stays inside the document folder", async () => {
       settings({ "tuiMarkdown.imageSaveFolder": "images/${fileName}" });
       const saved = await writeImage(docNamed("we..ird:na me.md"), "x.png", PNG);
       assert.ok(saved);
-      assert.match(saved.relativePath, /^images\/we_ird_na me\/image-/);
+      assert.equal(saved.relativePath, "images/we_ird_na me/x.png");
       assert.equal(saved.relativePath.includes(".."), false);
       const rel = path.relative(tmpDir, saved.fileUri.fsPath);
       assert.equal(rel.startsWith(".."), false);
