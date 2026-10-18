@@ -3,6 +3,7 @@ import * as path from "path";
 import * as fs from "fs/promises";
 import type { Root } from "mdast";
 import { findChromiumExecutable, clearChromiumCache } from "./chromium-discovery";
+import { printPdf } from "./pdf-print";
 import { extractVscodeResourcePath } from "./vscode-resource";
 
 export { clearChromiumCache };
@@ -27,6 +28,12 @@ export { clearChromiumCache };
  * - `stripDangerousHtmlTags` and `inlineRelativeImages` are load-bearing:
  *   they are why `<iframe src="file:///...">` in a document stays inert and
  *   why `![](./img.png)` renders instead of 404-ing on `about:blank`.
+ *
+ * The PDF carries Chromium's own bookmark tree (`outline: true`), built from
+ * the document's headings, so no table of contents is injected into the body.
+ * Both `outline` and `tagged` are experimental Chromium options and are
+ * dropped — never fatal — on a browser that does not know them; see
+ * `pdf-print.ts` for the retry.
  *
  * Dependency note: puppeteer-core is held at the 24.x major. 25.x requires
  * Node >= 22.12, while `engines.vscode` (^1.85.0) has an extension host on
@@ -108,7 +115,7 @@ export async function exportToPdf(
             waitUntil: "networkidle0",
             timeout: 30_000,
           });
-          const pdfBuffer: Uint8Array = await page.pdf({
+          const pdfBuffer: Uint8Array = await printPdf(page, {
             format,
             printBackground: true,
             preferCSSPageSize: false,
