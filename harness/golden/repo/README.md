@@ -58,6 +58,7 @@ Resizable tables with multi-line cell content. Right-click context menu for row/
 - **Table of Contents** — Sidebar with click-to-scroll, active heading tracking, collapse/expand
 - **Backlinks**: a panel on the right listing every workspace document that links here through `[[wiki links]]` or `@` mentions; click one to open it
 - **Wiki Links** — Type `[[` for autocomplete over the workspace's Markdown files; `[[Page]]` links resolve on click, and following one that does not exist offers to create it next to the current document
+- **Heading links across notes** — `[[Note#Heading]]`, `[[#Heading]]` and `[text](other.md#heading)` open the note scrolled to that heading
 - **File Mentions** — Type `@` to search any file in the workspace and insert a relative link
 
 ### Writing Experience
@@ -73,6 +74,7 @@ Resizable tables with multi-line cell content. Right-click context menu for row/
 - **Toolbar Auto-hide** — Opt-in, reveals on hover
 - **Focus Mode**: hides the toolbar, table of contents and progress bar, and keeps the line you are typing centred
 - **Footnotes**: `[^1]` references are numbered, and hovering one previews its definition
+- **Keyboard block moves**: `Alt+↑` / `Alt+↓` move the current block or list item; `Ctrl/Cmd+Enter` and `Ctrl/Cmd+Shift+Enter` insert an empty paragraph after or before it
 
 ## Usage
 
@@ -96,7 +98,10 @@ entry:
 - **Reset to the extension default**, which removes the workspace setting again
 
 The choice is written to `workbench.editorAssociations` in the workspace settings,
-so it travels with the folder and not with your user profile.
+so it travels with the folder and not with your user profile. It is written once
+per scheme the editor handles (`file:`, `vscode-remote:`, `vscode-vfs:` and unsaved
+documents with a path), so a git diff or another extension's virtual markdown
+document is not affected by it.
 
 ## Export
 
@@ -106,7 +111,7 @@ One-click export to Word `.docx` via `mdast2docx`. Preserves headings, lists, ta
 
 ### Export to PDF
 
-WYSIWYG export via headless Chromium (`puppeteer-core`). Requires Chrome, Edge, Chromium, or Brave installed locally (not bundled). Auto-detects common install paths.
+WYSIWYG export via headless Chromium (`puppeteer-core`). Requires Chrome, Edge, Chromium, or Brave installed locally (not bundled). Auto-detects common install paths. The PDF carries a bookmark tree built from the headings.
 
 > [!TIP]
 >
@@ -114,18 +119,19 @@ WYSIWYG export via headless Chromium (`puppeteer-core`). Requires Chrome, Edge, 
 
 ## Configuration
 
-| Setting                            | Default    | Description                                                                                           |
-| ---------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------- |
-| `tuiMarkdown.fontSize`             | `16`       | Editor font size (8–32px)                                                                             |
-| `tuiMarkdown.highlightCurrentLine` | `true`     | Enable cursor line highlight                                                                          |
-| `tuiMarkdown.imageSaveFolder`      | `images`   | Folder for pasted images (relative to document)                                                       |
-| `tuiMarkdown.autoRenameImages`     | `true`     | Auto-rename image files when path changes                                                             |
-| `tuiMarkdown.autoDeleteImages`     | `true`     | Auto-delete images removed from markdown (Trash); asks first if another document still uses the image |
-| `tuiMarkdown.autoHideToolbar`      | `false`    | Auto-hide toolbar when typing                                                                         |
-| `tuiMarkdown.listIndent`           | `"editor"` | List and code block indent: `editor` follows VS Code, or `2`, `4`, `tab`                              |
-| `tuiMarkdown.chromiumPath`         | `""`       | Chrome/Chromium path for PDF export                                                                   |
-| `tuiMarkdown.exportPageSize`       | `A4`       | Page size for PDF/DOCX export (`A4` or `Letter`)                                                      |
-| `tuiMarkdown.headingSizes.h1`–`h6` | `32`–`16`  | Heading font sizes (12–72px)                                                                          |
+| Setting                             | Default    | Description                                                                                                                                  |
+| ----------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tuiMarkdown.fontSize`              | `16`       | Editor font size (8–32px)                                                                                                                    |
+| `tuiMarkdown.highlightCurrentLine`  | `true`     | Enable cursor line highlight                                                                                                                 |
+| `tuiMarkdown.imageSaveFolder`       | `images`   | Folder for pasted images (relative to document). Accepts the variables below, e.g. `images/${fileName}`                                      |
+| `tuiMarkdown.imageFileNameTemplate` | `${name}`  | File name for pasted/dropped images, without extension. Variables: `${fileName}` `${name}` `${date}` `${now}` `${random}` `${uuid}` `${ext}` |
+| `tuiMarkdown.autoRenameImages`      | `true`     | Auto-rename image files when path changes                                                                                                    |
+| `tuiMarkdown.autoDeleteImages`      | `true`     | Auto-delete images removed from markdown (Trash); asks first if another document still uses the image                                        |
+| `tuiMarkdown.autoHideToolbar`       | `false`    | Auto-hide toolbar when typing                                                                                                                |
+| `tuiMarkdown.listIndent`            | `"editor"` | List and code block indent: `editor` follows VS Code, or `2`, `4`, `tab`                                                                     |
+| `tuiMarkdown.chromiumPath`          | `""`       | Chrome/Chromium path for PDF export                                                                                                          |
+| `tuiMarkdown.exportPageSize`        | `A4`       | Page size for PDF/DOCX export (`A4` or `Letter`)                                                                                             |
+| `tuiMarkdown.headingSizes.h1`–`h6`  | `32`–`16`  | Heading font sizes (12–72px)                                                                                                                 |
 
 
 ## Themes
