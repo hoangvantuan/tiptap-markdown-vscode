@@ -6,7 +6,8 @@
  * with `contentType: "markdown"`, then `transformTableCellsAfterParse()`;
  * on save `editor.getMarkdown()` + `reconstructContent()`. Edits are
  * debounced 300 ms into an `edit` message; pending edits are flushed
- * immediately on `visibilitychange` (hidden) and `pagehide`. However, an edit
+ * immediately on the save keystroke (#167), `visibilitychange` (hidden) and
+ * `pagehide`. However, an edit
  * message dispatched from `pagehide` can still be lost if VS Code disposes
  * the webview host before IPC delivery finishes. The provider's `pendingEdit`
  * flag (markdownEditorProvider.ts) keeps the resulting document change from
@@ -1923,6 +1924,27 @@ function init() {
   window.addEventListener("pagehide", () => {
     flushPendingEdit();
   });
+
+  // Save keystroke (#167). Without this, text typed less than 300 ms before
+  // Ctrl/Cmd+S was still in the debounce when the workbench saved: the file
+  // missed it and the late `edit` dirtied the document again (the floor check
+  // measured 6 of 6 rounds lost). Capture phase on window, so this runs before
+  // the frontmatter textarea's own Mod+S handler and, more to the point,
+  // before VS Code's `did-keydown` forwarder, which the webview host registers
+  // as a bubble-phase listener on this window. Both that forwarder and
+  // `vscode.postMessage` write synchronously into the same MessagePort, so the
+  // `edit` reaches the workbench, and from there the extension host, ahead of
+  // the keystroke that triggers the save. Neither preventDefault nor
+  // stopPropagation: the keybinding must still reach the workbench, which is
+  // what saves. The flush goes through `ContentSync.postEdit()` like every
+  // other edit, and posts nothing when the content matches the baseline.
+  // Match on Ctrl OR Meta and keyCode 83, the same test VS Code's forwarder
+  // applies (`isSaveEvent`), so Save As (Shift) flushes too.
+  window.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.keyCode === 83 || e.key === "s" || e.key === "S")) {
+      flushPendingEdit();
+    }
+  }, { capture: true });
 
   setupToolbarHandlers();
   setupSearchBar();
