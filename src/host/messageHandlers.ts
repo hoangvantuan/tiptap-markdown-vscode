@@ -36,6 +36,7 @@ import { handleRequestImageRename } from "./requestImageRename";
 import { openWikiLink } from "./openWikiLink";
 import { handleExport } from "./exportDocument";
 import { openLocalFileInEditor } from "./openLocalFile";
+import { takePendingFragment } from "./fragmentNavigation";
 import { buildExcludePattern, getDocFolder } from "./workspaceFiles";
 import { findBacklinks } from "./backlinks";
 import { handlePickImage } from "./pickImage";
@@ -71,6 +72,12 @@ const handlers: HandlerTable = {
     ctx.session.sendTheme();
     ctx.session.sendConfig();
     ctx.session.updateWebview();
+    // A link with a `#fragment` opened this document (#171). Posted now, ahead
+    // of the debounced `update`; the webview holds it until content is in.
+    const fragment = takePendingFragment(ctx.document.uri);
+    if (fragment) {
+      ctx.webview.postMessage({ type: "scrollTo", fragment });
+    }
     // Send system fonts asynchronously (non-blocking)
     getSystemFonts().then((fonts) => {
       try {

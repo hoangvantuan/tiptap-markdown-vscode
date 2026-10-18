@@ -6,7 +6,8 @@
  * with `contentType: "markdown"`, then `transformTableCellsAfterParse()`;
  * on save `editor.getMarkdown()` + `reconstructContent()`. Edits are
  * debounced 300 ms into an `edit` message; pending edits are flushed
- * immediately on `visibilitychange` (hidden) and `pagehide`. However, an edit
+ * immediately on the save keystroke (#167), `visibilitychange` (hidden) and
+ * `pagehide`. However, an edit
  * message dispatched from `pagehide` can still be lost if VS Code disposes
  * the webview host before IPC delivery finishes. The provider's `pendingEdit`
  * flag (markdownEditorProvider.ts) keeps the resulting document change from
@@ -32,7 +33,7 @@ import {
   type FrontmatterFormat,
 } from "./frontmatter";
 import { LineHighlight } from "./line-highlight-plugin";
-import { headingSlug } from "./heading-slug";
+import { scrollEditorToHeading, scheduleLatchedScroll } from "./heading-slug";
 import { setupImageEditOverlay, handleUrlEditResponse, handleImageRenameResponse, setOnImageRenamed, promptForImageUrl } from "./image-edit-plugin";
 import {
   setImageMap,
@@ -76,6 +77,7 @@ import { setupBacklinksPanel, updateBacklinks, refreshBacklinksIfVisible } from 
 import { setupFocusMode, handleFocusModeTransaction } from "./focus-mode";
 import { insertDetails } from "./details-extension";
 import { buildMarkdownExtensions } from "./extension-factory";
+import { setMathMacros } from "./math-extension";
 
 // Install unified text escape overrides on MarkdownManager (#97, #99, #100, #101).
 installMarkdownTextEscape();
@@ -262,6 +264,11 @@ function requestImagePick(ed: Editor): void {
   vscode.postMessage({ type: "pickImage", requestId });
 }
 
+// A SUGGESTION only (#172, #177): the host's `writeImage` takes the extension
+// from here (and corrects it against the bytes) and names the file from
+// `tuiMarkdown.imageFileNameTemplate`, whose default `${name}` keeps this stem,
+// so a paste is still `image-<now>-<random>`. The savedPath in `imageSaved` is
+// the real name; never rebuild it from what was sent.
 function generateImageFilename(mimeType: string): string {
   const subtype = mimeType.split("/")[1]?.replace(/;.*/, "") || "png";
   const ext = subtype.split("+")[0]; // Handle compound types like svg+xml
@@ -898,7 +905,12 @@ function initEditor(initialContent: string = ""): Editor | null {
       // webview focused the editor, and a ProseMirror selection in an unfocused
       // view draws nothing at all. Found while chasing a position-restore
       // report that turned out not to be about positions.
-      autofocus: 'start' as const,
+      // When a `#fragment` jump is waiting (`pendingScrollFragment !== null`),
+      // suppress Tiptap's `autofocus: 'start'`: its `setTimeout(0)` ->
+      // `commands.focus('start')` -> `requestAnimationFrame(scrollIntoView)`
+      // fires after `scheduleScrollToHeading` and yanks both the selection and
+      // `#editor-container` back to the top of the document (#171).
+      autofocus: pendingScrollFragment !== null ? false : ('start' as const),
       editorProps: {
         handlePaste(view, event) {
           const file = getImageFromClipboard(event.clipboardData);
@@ -1587,7 +1599,15 @@ function setupToolbarHandlers(): void {
       e.stopPropagation();
       const filename = wikiLink.getAttribute("data-filename");
       if (filename) {
-        vscode.postMessage({ type: "openWikiLink", filename });
+        // `[[#Heading]]` is all fragment: it names THIS document, so scroll
+        // here and open nothing (#170). Anything with a file part goes to the
+        // host, which splits the fragment off before resolving.
+        const trimmed = filename.trim();
+        if (trimmed.startsWith("#")) {
+          scrollToHeading(trimmed.slice(1));
+        } else {
+          vscode.postMessage({ type: "openWikiLink", filename });
+        }
       }
       return;
     }
@@ -1608,31 +1628,102 @@ function setupToolbarHandlers(): void {
 
 }
 
-/** Scroll editor to heading matching GitHub-style slug */
-function scrollToHeading(slug: string): void {
-  if (!editor) return;
-  const { doc } = editor.state;
-  doc.descendants((node, pos) => {
-    if (node.type.name !== "heading") return;
-    // The slug rule lives in heading-slug.ts, and only there. Two copies of it
-    // is how an anchor link and the heading it points at stop matching.
-    if (headingSlug(node.textContent) === slug) {
-      editor!.commands.setTextSelection(pos + 1);
-      const dom = editor!.view.nodeDOM(pos);
-      if (dom instanceof HTMLElement) {
-        const scroller = document.getElementById("editor-container");
-        if (scroller) {
-          const elRect = dom.getBoundingClientRect();
-          const scrollerRect = scroller.getBoundingClientRect();
-          const targetTop = elRect.top - scrollerRect.top + scroller.scrollTop - 60;
-          scroller.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
-        } else {
-          dom.scrollIntoView({ behavior: "smooth", block: "start" });
-        }
+/**
+ * Fragment waiting for the initial `update` to mount the editor (#171).
+ * `ready` posts `scrollTo` immediately while `updateWebview()` is debounced
+ * 50 ms on the host, so at initial open `scrollTo` arrives before `editor`
+ * exists and is held here until `update` finishes building the document.
+ */
+let pendingScrollFragment: string | null = null;
+let cancelScheduledScroll: (() => void) | null = null;
+
+/**
+ * Scroll the editor to the first heading a link fragment names, and put the
+ * caret in it. Returns whether a heading matched.
+ *
+ * `fragment` is whatever followed the `#`: a slug from a markdown link
+ * (`#my-heading`) or heading text from a wiki link (`[[#My Heading]]`);
+ * `scrollEditorToHeading` compares both through the one slug rule in
+ * `heading-slug.ts` and runs `setTextSelection` inside
+ * `contentSync.guardExtensionUpdate` so jumping never dirties the document.
+ */
+function scrollToHeading(
+  fragment: string,
+  behavior: ScrollBehavior = "smooth",
+  select = true,
+): boolean {
+  if (!editor) return false;
+  return scrollEditorToHeading(editor, fragment, {
+    behavior,
+    select,
+    guardTransaction: (fn) => contentSync.guardExtensionUpdate(fn),
+  });
+}
+
+/**
+ * Schedule a host-driven `scrollTo` jump (#171).
+ *
+ * Two hazards at document open:
+ * 1. A covered or background window never receives `requestAnimationFrame`
+ *    callbacks in Chromium (#112), so the initial jump uses the latched
+ *    `requestAnimationFrame(once)` + `setTimeout(once, 50)` pair via
+ *    `scheduleLatchedScroll` and scrolls with `"instant"` behavior (which does
+ *    not depend on animation frames to advance).
+ * 2. Mermaid diagrams (500 ms debounce + async lazy artifact render) and images
+ *    above the target heading grow `.tiptap` asynchronously after the initial
+ *    scroll, pushing the heading down. A short-lived `ResizeObserver` on
+ *    `.tiptap` re-aligns `#editor-container` whenever `.tiptap` changes height
+ *    during the initial 2000 ms settle window, and disconnects immediately on
+ *    any user input (`wheel`, `mousedown`, `keydown`, `touchstart`).
+ */
+function scheduleScrollToHeading(fragment: string): void {
+  cancelScheduledScroll?.();
+  cancelScheduledScroll = null;
+
+  let stopObserver: (() => void) | null = null;
+  const cancelLatch = scheduleLatchedScroll(() => {
+    if (!scrollToHeading(fragment, "instant", true)) {
+      if (editor && !editor.view.hasFocus()) {
+        contentSync.guardExtensionUpdate(() => {
+          editor?.commands.focus("start");
+        });
       }
-      return false;
+      return;
+    }
+    if (typeof ResizeObserver === "undefined") return;
+    const tiptapEl = document.querySelector(".tiptap") as HTMLElement | null;
+    if (!tiptapEl) return;
+
+    let lastHeight = tiptapEl.offsetHeight;
+    const observer = new ResizeObserver(() => {
+      const nextHeight = tiptapEl.offsetHeight;
+      if (nextHeight === lastHeight) return;
+      lastHeight = nextHeight;
+      scrollToHeading(fragment, "instant", false);
+    });
+    observer.observe(tiptapEl);
+
+    const stopEvents = ["wheel", "mousedown", "keydown", "touchstart"] as const;
+    const settleTimer = setTimeout(() => cleanup(), 2000);
+    const cleanup = () => {
+      if (!stopObserver) return;
+      stopObserver = null;
+      clearTimeout(settleTimer);
+      observer.disconnect();
+      for (const evt of stopEvents) {
+        window.removeEventListener(evt, cleanup);
+      }
+    };
+    stopObserver = cleanup;
+    for (const evt of stopEvents) {
+      window.addEventListener(evt, cleanup, { passive: true });
     }
   });
+
+  cancelScheduledScroll = () => {
+    cancelLatch();
+    stopObserver?.();
+  };
 }
 
 window.addEventListener("message", async (event) => {
@@ -1722,6 +1813,11 @@ window.addEventListener("message", async (event) => {
                   setCollapsedHeadings(editor.view, saved.collapsedHeadings);
                 }
               }
+              if (pendingScrollFragment !== null) {
+                const fragment = pendingScrollFragment;
+                pendingScrollFragment = null;
+                scheduleScrollToHeading(fragment);
+              }
               // Update TOC after content change (skip if just initialized — initTocSidebar already did it)
               if (!justInitialized) updateTocFromEditor(editor, true);
               refreshBacklinksIfVisible();
@@ -1797,6 +1893,9 @@ window.addEventListener("message", async (event) => {
           }
         }
       }
+      // VS Code's own `markdown.math.macros` table. It re-renders the
+      // formulas already on screen when it changes; the document is untouched.
+      setMathMacros(message.mathMacros);
       break;
     case "savedTheme":
       if (
@@ -1920,6 +2019,16 @@ window.addEventListener("message", async (event) => {
         updateBacklinks(message.links);
       }
       break;
+    case "scrollTo":
+      if (typeof message.fragment === "string" && message.fragment) {
+        if (editor) {
+          pendingScrollFragment = null;
+          scheduleScrollToHeading(message.fragment);
+        } else {
+          pendingScrollFragment = message.fragment;
+        }
+      }
+      break;
   }
 });
 
@@ -1994,6 +2103,27 @@ function init() {
   window.addEventListener("pagehide", () => {
     flushPendingEdit();
   });
+
+  // Save keystroke (#167). Without this, text typed less than 300 ms before
+  // Ctrl/Cmd+S was still in the debounce when the workbench saved: the file
+  // missed it and the late `edit` dirtied the document again (the floor check
+  // measured 6 of 6 rounds lost). Capture phase on window, so this runs before
+  // the frontmatter textarea's own Mod+S handler and, more to the point,
+  // before VS Code's `did-keydown` forwarder, which the webview host registers
+  // as a bubble-phase listener on this window. Both that forwarder and
+  // `vscode.postMessage` write synchronously into the same MessagePort, so the
+  // `edit` reaches the workbench, and from there the extension host, ahead of
+  // the keystroke that triggers the save. Neither preventDefault nor
+  // stopPropagation: the keybinding must still reach the workbench, which is
+  // what saves. The flush goes through `ContentSync.postEdit()` like every
+  // other edit, and posts nothing when the content matches the baseline.
+  // Match on Ctrl OR Meta and keyCode 83, the same test VS Code's forwarder
+  // applies (`isSaveEvent`), so Save As (Shift) flushes too.
+  window.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.keyCode === 83 || e.key === "s" || e.key === "S")) {
+      flushPendingEdit();
+    }
+  }, { capture: true });
 
   setupToolbarHandlers();
   setupSearchBar();

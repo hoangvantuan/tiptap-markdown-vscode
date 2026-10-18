@@ -63,6 +63,7 @@ import { WikiLink } from "./wiki-link-plugin";
 import { RawHtmlBlock, RawHtmlInline } from "./raw-html";
 import { CustomOrderedList } from "./ordered-list-extension";
 import { ListKeymapExtension } from "./list-keymap-extension";
+import { BlockKeysExtension } from "./block-keys-extension";
 import { mathExtensions } from "./math-extension";
 import { footnoteExtensions } from "./footnote-extension";
 import { htmlMarkExtensions } from "./html-marks";
@@ -393,6 +394,7 @@ export function buildMarkdownExtensions(config: ExtensionFactoryConfig = {}): an
     }),
     CustomOrderedList,
     ListKeymapExtension,
+    BlockKeysExtension,
     Markdown.configure({
       marked: customMarked,
       indentation,

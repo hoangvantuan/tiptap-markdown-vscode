@@ -101,6 +101,7 @@ Besides the corpus, `npm run roundtrip` runs one golden per seam:
 | `codeblock-seam.ts` | `seams/codeblock.txt` | Line numbers and wrap are view state, so the fenced block on disk is unchanged by either (#134) |
 | `content-sync-seam.ts` | `seams/content-sync.txt` | Which edits the view posts to the host and which it does not: the #111 pair (a keystroke undone inside the debounce window, a document ending in an alert at load), baseline re-anchoring, debounce coalescing, and the extension-update latch read at three moments (#148, #150) |
 | `image-path-seam.ts` | `seams/image-path.txt` | What the FILE gets for an image the view displays: a host map change, a rename driven by the plugin, and two nodes pointing at one image. The stale reverse cache that wrote a `vscode-resource` URL into a user's file is case three (#142, #147) |
+| `block-keys-seam.ts` | `seams/block-keys.txt` | `BlockKeysExtension`: markdown and caret after Alt+Up/Down and Mod+(Shift+)Enter across paragraphs, headings, code blocks, blockquotes, lists, task lists and tables, plus the two upstream bindings it leaves alone (code-block `exitCode`, `Shift+Enter` hard break). Making a list item move as a top-level block turns the seam red (#178) |
 
 A seam's `run` may return a promise, and the runner awaits it (#150).
 `content-sync-seam.ts` is the one that needs it: it reads the extension-update

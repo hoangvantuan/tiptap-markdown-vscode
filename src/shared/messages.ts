@@ -170,6 +170,12 @@ export interface ConfigMessage {
   autoHideToolbar: boolean;
   listIndentation?: { style: "space" | "tab"; size: number };
   tabSize?: number;
+  /**
+   * VS Code's own `markdown.math.macros`, as a `{"\\RR": "\\mathbb{R}"}`
+   * table. It belongs to the built-in markdown extension, not to us, and it is
+   * what makes a formula render the same here as in VS Code's preview.
+   */
+  mathMacros?: Record<string, string>;
 }
 
 export interface SavedThemeMessage {
@@ -269,6 +275,17 @@ export interface RemoteImagesDownloadedMessage {
   images: Array<{ url: string; savedPath: string; webviewUri: string }>;
 }
 
+/**
+ * Scroll to the heading a followed link named (#171). `fragment` is the raw
+ * text after `#`: heading text from a wiki link or a slug from a markdown link;
+ * the webview compares both through `fragmentMatchesHeading`.
+ */
+export interface ScrollToMessage {
+  type: "scrollTo";
+  fragment: string;
+}
+
+
 export type HostToWebviewMessage =
   | UpdateMessage
   | ThemeMessage
@@ -286,4 +303,5 @@ export type HostToWebviewMessage =
   | ExportDoneMessage
   | BacklinksMessage
   | ImagePickedMessage
-  | RemoteImagesDownloadedMessage;
+  | RemoteImagesDownloadedMessage
+  | ScrollToMessage;

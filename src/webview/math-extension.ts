@@ -5,9 +5,104 @@
  * tokenizers so that @tiptap/markdown's text escaping never touches the formula (#131).
  *
  * Lazy rendering with KaTeX via artifact-bridge.ts.
+ *
+ * The macro table (#179) is VS Code's own `markdown.math.macros`, sent by the
+ * host in the `config` message. It lives here, at module level, because the
+ * KaTeX artifact is loaded lazily and a formula may be rendered long after the
+ * config arrived. Two rules the table imposes:
+ *
+ * - KaTeX MUTATES the `macros` object it is given (`\gdef` writes into it), so
+ *   every render gets its own COPY. A `\gdef` in one formula must not reach
+ *   the next formula, nor the next render of the same one.
+ * - A macro change must reach the formulas already on screen. The node views
+ *   register themselves in `liveMathViews` and are re-rendered from there; the
+ *   document is NOT touched, so no `edit` is posted (the LaTeX is a node
+ *   attribute, and the roundtrip is unaffected either way).
  */
 import { Node, mergeAttributes } from "@tiptap/core";
+import type { KatexOptions } from "katex";
 import { getCachedArtifact, getKatexAssetsUri, loadArtifact } from "./artifact-bridge";
+
+/**
+ * The macro table KaTeX renders with. Owned by the host's `config` message;
+ * `setMathMacros` is the only writer.
+ */
+let currentMacros: Record<string, string> = {};
+
+/** The math node views currently on screen, so a macro change can reach them. */
+const liveMathViews = new Set<{ rerender: () => void }>();
+
+/**
+ * Install the macro table and re-render what is on screen if it changed.
+ *
+ * The table is copied and filtered: only string values are kept, because the
+ * setting can come from a workspace settings file that is not ours, and KaTeX
+ * expects strings. The HOST already applies a count and length limit; this is
+ * the second, cheap guard against a malformed message.
+ */
+export function setMathMacros(macros: unknown): void {
+  const next: Record<string, string> = {};
+  if (macros && typeof macros === "object" && !Array.isArray(macros)) {
+    for (const [key, value] of Object.entries(macros as Record<string, unknown>)) {
+      if (typeof value === "string") next[key] = value;
+    }
+  }
+  if (sameMacros(next, currentMacros)) return;
+  currentMacros = next;
+  for (const view of liveMathViews) {
+    try {
+      view.rerender();
+    } catch (err) {
+      console.warn("[Math] Could not re-render a formula after a macro change:", err);
+    }
+  }
+}
+
+/** A copy of the current macro table. */
+export function getMathMacros(): Record<string, string> {
+  return { ...currentMacros };
+}
+
+/**
+ * Register a formula on screen for re-render, and get the function that
+ * unregisters it again.
+ *
+ * The node views call this when they are created and unregister when
+ * ProseMirror destroys them, so a macro change reaches exactly the formulas
+ * that are still alive.
+ */
+export function registerMathView(view: { rerender: () => void }): () => void {
+  liveMathViews.add(view);
+  return () => {
+    liveMathViews.delete(view);
+  };
+}
+
+function sameMacros(a: Record<string, string>, b: Record<string, string>): boolean {
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every((key) => a[key] === b[key]);
+}
+
+/**
+ * The KaTeX options every render uses.
+ *
+ * `macros` is a COPY: KaTeX writes `\gdef` definitions into the object it is
+ * handed, so the shared table must never be the one a render sees.
+ *
+ * `maxExpand` is KaTeX's own default (1000), stated explicitly because the
+ * table can come from somebody else's workspace settings: it is the knob that
+ * stops a self-referential macro from expanding forever.
+ */
+export function buildKatexOptions(displayMode: boolean): KatexOptions {
+  return {
+    displayMode,
+    throwOnError: false,
+    macros: { ...currentMacros },
+    maxExpand: 1000,
+  };
+}
 
 /** Inject KaTeX stylesheet once into webview document.head if not already present. */
 export function ensureKatexStylesheet(): void {
@@ -111,14 +206,14 @@ export const InlineMath = Node.create({
       const render = (latex: string) => {
         const id = ++renderId;
         ensureKatexStylesheet();
+        // Built per render, not captured: the macro table can change while
+        // the formula is on screen.
+        const options = buildKatexOptions(false);
 
         const cached = getCachedArtifact<{ katex: typeof import("katex") }>("katex");
         if (cached?.katex) {
           try {
-            dom.innerHTML = cached.katex.renderToString(latex, {
-              displayMode: false,
-              throwOnError: false,
-            });
+            dom.innerHTML = cached.katex.renderToString(latex, options);
             return;
           } catch {
             dom.textContent = `$${latex}$`;
@@ -132,10 +227,7 @@ export const InlineMath = Node.create({
           .then((bundle) => {
             if (id !== renderId) return;
             if (bundle?.katex) {
-              dom.innerHTML = bundle.katex.renderToString(latex, {
-                displayMode: false,
-                throwOnError: false,
-              });
+              dom.innerHTML = bundle.katex.renderToString(latex, options);
             }
           })
           .catch(() => {
@@ -147,6 +239,12 @@ export const InlineMath = Node.create({
 
       render(currentLatex);
 
+      // Registered so a macro change can re-render this formula. The node
+      // view owns `dom` (an atom has no contentDOM), so writing it here is
+      // the same write the update path already does — the document itself is
+      // not touched.
+      const unregister = registerMathView({ rerender: () => render(currentLatex) });
+
       return {
         dom,
         update(updatedNode: any) {
@@ -157,6 +255,9 @@ export const InlineMath = Node.create({
             render(currentLatex);
           }
           return true;
+        },
+        destroy() {
+          unregister();
         },
       };
     };
@@ -253,14 +354,14 @@ export const BlockMath = Node.create({
       const render = (latex: string) => {
         const id = ++renderId;
         ensureKatexStylesheet();
+        // Built per render, not captured: the macro table can change while
+        // the formula is on screen.
+        const options = buildKatexOptions(true);
 
         const cached = getCachedArtifact<{ katex: typeof import("katex") }>("katex");
         if (cached?.katex) {
           try {
-            dom.innerHTML = cached.katex.renderToString(latex, {
-              displayMode: true,
-              throwOnError: false,
-            });
+            dom.innerHTML = cached.katex.renderToString(latex, options);
             return;
           } catch {
             dom.textContent = `$$${latex}$$`;
@@ -274,10 +375,7 @@ export const BlockMath = Node.create({
           .then((bundle) => {
             if (id !== renderId) return;
             if (bundle?.katex) {
-              dom.innerHTML = bundle.katex.renderToString(latex, {
-                displayMode: true,
-                throwOnError: false,
-              });
+              dom.innerHTML = bundle.katex.renderToString(latex, options);
             }
           })
           .catch(() => {
@@ -289,6 +387,10 @@ export const BlockMath = Node.create({
 
       render(currentLatex);
 
+      // Registered so a macro change can re-render this formula (see the
+      // module header).
+      const unregister = registerMathView({ rerender: () => render(currentLatex) });
+
       return {
         dom,
         update(updatedNode: any) {
@@ -299,6 +401,9 @@ export const BlockMath = Node.create({
             render(currentLatex);
           }
           return true;
+        },
+        destroy() {
+          unregister();
         },
       };
     };
