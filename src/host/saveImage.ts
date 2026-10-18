@@ -23,8 +23,36 @@ export async function handleSaveImage(
   const imgMsg = msg;
   if (!imgMsg.data || !imgMsg.filename || !imgMsg.blobUrl) return;
 
+  // Decode base64
+  // Note: Use [^;]+ to match MIME types like image/svg+xml
+  const base64Data = imgMsg.data.replace(
+    /^data:image\/[^;]+;base64,/i,
+    "",
+  );
+  const saved = await writeImage(document, imgMsg.filename, Buffer.from(base64Data, "base64"));
+  if (!saved) return;
+
+  // Send back the saved path and a webview URI for immediate display
+  webview.postMessage({
+    type: "imageSaved",
+    blobUrl: imgMsg.blobUrl,
+    savedPath: saved.relativePath,
+    webviewUri: webview.asWebviewUri(saved.fileUri).toString(),
+  });
+}
+
+/**
+ * Validate, place and write image bytes for `document`; the one path every
+ * image source (paste, drop, and any later one) goes through, so the guards in
+ * the header apply to all of them. Returns `undefined` after showing the
+ * error when a guard rejects or the write fails.
+ */
+export async function writeImage(
+  document: vscode.TextDocument,
+  filename: string,
+  bytes: Uint8Array,
+): Promise<{ fileUri: vscode.Uri; relativePath: string } | undefined> {
   // Security: Strong filename validation
-  const filename = imgMsg.filename;
   // Block: path traversal, separators, null bytes, control chars, Windows reserved chars
   const INVALID_FILENAME_CHARS = /[<>:"|?*\x00-\x1F\u202E]/;
   // Windows reserved device names (case-insensitive)
@@ -40,7 +68,7 @@ export async function handleSaveImage(
   ) {
     console.error("[Image Save] Invalid filename:", filename);
     vscode.window.showErrorMessage("Invalid filename");
-    return;
+    return undefined;
   }
 
   try {
@@ -55,7 +83,7 @@ export async function handleSaveImage(
       vscode.window.showErrorMessage(
         "imageSaveFolder must be a relative path (or '.') within the document folder."
       );
-      return;
+      return undefined;
     }
 
     // Resolve folder path relative to document
@@ -68,7 +96,7 @@ export async function handleSaveImage(
       vscode.window.showErrorMessage(
         "imageSaveFolder resolves outside document folder."
       );
-      return;
+      return undefined;
     }
 
     // Create folder if not exists
@@ -78,35 +106,18 @@ export async function handleSaveImage(
       // Folder may already exist
     }
 
-    // Decode base64 and save file
-    // Note: Use [^;]+ to match MIME types like image/svg+xml
-    const base64Data = imgMsg.data.replace(
-      /^data:image\/[^;]+;base64,/i,
-      "",
-    );
-    const buffer = Buffer.from(base64Data, "base64");
     const fileUri = vscode.Uri.joinPath(imageFolder, filename);
-    await vscode.workspace.fs.writeFile(fileUri, buffer);
+    await vscode.workspace.fs.writeFile(fileUri, bytes);
 
     // Build relative path for markdown
     const relativePath =
       saveFolder === "." ? filename : `${saveFolder}/${filename}`;
-
-    // Create webview URI for immediate display
-    const webviewUri =
-      webview.asWebviewUri(fileUri).toString();
-
-    // Send back the saved path and webviewUri
-    webview.postMessage({
-      type: "imageSaved",
-      blobUrl: imgMsg.blobUrl,
-      savedPath: relativePath,
-      webviewUri,
-    });
+    return { fileUri, relativePath };
   } catch (err) {
     console.error("[Image Save] Failed:", err);
     vscode.window.showErrorMessage(
       `Failed to save image: ${err instanceof Error ? err.message : String(err)}`,
     );
+    return undefined;
   }
 }
