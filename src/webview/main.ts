@@ -68,6 +68,7 @@ import { setupBacklinksPanel, updateBacklinks, refreshBacklinksIfVisible } from 
 import { setupFocusMode, handleFocusModeTransaction } from "./focus-mode";
 import { insertDetails } from "./details-extension";
 import { buildMarkdownExtensions } from "./extension-factory";
+import { setMathMacros } from "./math-extension";
 
 // Install unified text escape overrides on MarkdownManager (#97, #99, #100, #101).
 installMarkdownTextEscape();
@@ -1764,6 +1765,9 @@ window.addEventListener("message", async (event) => {
           }
         }
       }
+      // VS Code's own `markdown.math.macros` table. It re-renders the
+      // formulas already on screen when it changes; the document is untouched.
+      setMathMacros(message.mathMacros);
       break;
     case "savedTheme":
       if (
