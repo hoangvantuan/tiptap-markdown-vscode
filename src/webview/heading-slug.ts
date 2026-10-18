@@ -81,7 +81,7 @@ export function findHeadingOffset(doc: HeadingSearchDoc, fragment: string): numb
 export interface ScrollableHeadingEditor {
   state: { doc: HeadingSearchDoc };
   commands: { setTextSelection(position: number): boolean };
-  view: { nodeDOM(pos: number): unknown };
+  view: { nodeDOM(pos: number): unknown; focus?(): void };
 }
 
 export interface ScrollEditorToHeadingOptions {
@@ -100,8 +100,11 @@ export interface ScrollEditorToHeadingOptions {
 
 /**
  * Locate the first heading matching `fragment`, place the caret at its start
- * (`pos + 1`) under `guardTransaction`, and scroll `#editor-container` so the
- * heading sits near the top of the viewport. Returns whether a heading matched.
+ * (`pos + 1`) under `guardTransaction`, scroll `#editor-container` so the
+ * heading sits near the top of the viewport, and focus the ProseMirror view
+ * without scrolling (`EditorView.focus()` uses `focusPreventScroll` +
+ * `selectionToDOM`) so an unfocused view draws the caret inside the heading.
+ * Returns whether a heading matched.
  */
 export function scrollEditorToHeading(
   editor: ScrollableHeadingEditor,
@@ -137,6 +140,15 @@ export function scrollEditorToHeading(
       scroller.scrollTo({ top: Math.max(0, targetTop), behavior });
     } else if (typeof el.scrollIntoView === "function") {
       el.scrollIntoView({ behavior, block: "start" });
+    }
+  }
+
+  if (select && typeof editor.view.focus === "function") {
+    const focusView = () => editor.view.focus!();
+    if (guardTransaction) {
+      guardTransaction(focusView);
+    } else {
+      focusView();
     }
   }
   return true;

@@ -886,7 +886,12 @@ function initEditor(initialContent: string = ""): Editor | null {
       // webview focused the editor, and a ProseMirror selection in an unfocused
       // view draws nothing at all. Found while chasing a position-restore
       // report that turned out not to be about positions.
-      autofocus: 'start' as const,
+      // When a `#fragment` jump is waiting (`pendingScrollFragment !== null`),
+      // suppress Tiptap's `autofocus: 'start'`: its `setTimeout(0)` ->
+      // `commands.focus('start')` -> `requestAnimationFrame(scrollIntoView)`
+      // fires after `scheduleScrollToHeading` and yanks both the selection and
+      // `#editor-container` back to the top of the document (#171).
+      autofocus: pendingScrollFragment !== null ? false : ('start' as const),
       editorProps: {
         handlePaste(view, event) {
           const file = getImageFromClipboard(event.clipboardData);
@@ -1644,7 +1649,14 @@ function scheduleScrollToHeading(fragment: string): void {
 
   let stopObserver: (() => void) | null = null;
   const cancelLatch = scheduleLatchedScroll(() => {
-    if (!scrollToHeading(fragment, "instant", true)) return;
+    if (!scrollToHeading(fragment, "instant", true)) {
+      if (editor && !editor.view.hasFocus()) {
+        contentSync.guardExtensionUpdate(() => {
+          editor?.commands.focus("start");
+        });
+      }
+      return;
+    }
     if (typeof ResizeObserver === "undefined") return;
     const tiptapEl = document.querySelector(".tiptap") as HTMLElement | null;
     if (!tiptapEl) return;
