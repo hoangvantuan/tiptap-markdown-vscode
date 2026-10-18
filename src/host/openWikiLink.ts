@@ -17,15 +17,55 @@
  *    side-effects without explicit intent.
  * 3. Paths that attempt traversal or escape the document directory are rejected
  *    to prevent directory escape.
+ *
+ * The target is split at its first `#` BEFORE any of that (#170): the wiki link
+ * tokenizer keeps `[[Note#Heading]]` whole as `filename = "Note#Heading"`, which
+ * is right for the file (the link must serialize back verbatim) and wrong for
+ * resolution, which used to look for `Note#Heading.md` and then offer to create
+ * it. Only the part before the `#` names a file; a target that is ALL fragment
+ * (`[[#Heading]]`) names the current document and resolves nothing here.
+ * The fragment itself goes to `openWithFragment`, which scrolls the opened
+ * note to that heading (#171). A note created by the prompt is empty, so it is
+ * opened without one.
  */
 import * as path from "path";
 import * as vscode from "vscode";
 import { hasPathTraversal } from "../utils/image-rename-handler";
+import { openWithFragment } from "./fragmentNavigation";
+
+/** A wiki link target split into the file it names and the fragment after `#`. */
+export interface WikiTarget {
+  /** The file part, trimmed; `""` for a same-document link such as `[[#Heading]]`. */
+  name: string;
+  /** Text after the first `#` (`Heading`, `^block-id`), or null when there is none. */
+  fragment: string | null;
+}
+
+/**
+ * Split `Note#Heading` into `{ name: "Note", fragment: "Heading" }`. The FIRST
+ * `#` splits, because a filename cannot carry one through this syntax and an
+ * Obsidian nested fragment (`Note#A#B`) keeps its own `#` intact for the
+ * heading matcher. An empty fragment (`Note#`) is no fragment.
+ */
+export function splitWikiTarget(raw: string): WikiTarget {
+  const trimmed = raw.trim();
+  const hashIndex = trimmed.indexOf("#");
+  if (hashIndex === -1) return { name: trimmed, fragment: null };
+  const fragment = trimmed.slice(hashIndex + 1).trim();
+  return {
+    name: trimmed.slice(0, hashIndex).trim(),
+    fragment: fragment === "" ? null : fragment,
+  };
+}
 
 export async function openWikiLink(
-  wikiFilename: string,
+  rawTarget: string,
   currentDocUri?: vscode.Uri,
 ): Promise<vscode.Uri | undefined> {
+  if (!rawTarget) return undefined;
+  // From here on `wikiFilename` is the file part only, so neither the lookup
+  // nor the create prompt below can ever see a `#`.
+  const { name: wikiFilename, fragment } = splitWikiTarget(rawTarget);
   if (!wikiFilename) return undefined;
 
   const slugified = wikiFilename.trim().replace(/\s+/g, "-");
@@ -93,7 +133,7 @@ export async function openWikiLink(
     }
     return undefined;
   } else if (results.length === 1) {
-    await vscode.commands.executeCommand("vscode.open", results[0]);
+    await openWithFragment(results[0], fragment);
     return results[0];
   } else {
     const picks = results.map((uri) => ({
@@ -105,7 +145,7 @@ export async function openWikiLink(
       placeHolder: `Multiple files match "${wikiFilename}.md"`,
     });
     if (chosen) {
-      await vscode.commands.executeCommand("vscode.open", chosen.uri);
+      await openWithFragment(chosen.uri, fragment);
       return chosen.uri;
     }
     return undefined;

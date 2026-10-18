@@ -57,6 +57,56 @@ export function getImageFileNameTemplate(): string {
   );
 }
 
+/**
+ * The macro table the webview hands to KaTeX.
+ *
+ * This is VS Code's OWN setting (`markdown.math.macros`), not one of ours: it
+ * belongs to the built-in markdown extension, and reading it is what makes
+ * `$\RR$` render the same here as in VS Code's own preview.
+ *
+ * The value is not fully trusted: it can come from a workspace settings file
+ * that belongs to somebody else. KaTeX macros are pure text substitution and
+ * cannot execute code, but an unbounded table would be copied into EVERY
+ * formula's render, so the count and the length of one definition are capped
+ * here. Anything dropped is reported, never silently ignored.
+ */
+export function getMathMacros(document: vscode.TextDocument): Record<string, string> {
+  const config = vscode.workspace.getConfiguration("markdown", document.uri);
+  const raw = config.get<unknown>("math.macros", {});
+  return sanitizeMathMacros(raw);
+}
+
+/** How many macros one document may define. */
+const MAX_MATH_MACROS = 500;
+/** How long one macro definition may be. */
+const MAX_MATH_MACRO_LENGTH = 2000;
+
+function sanitizeMathMacros(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  let kept = 0;
+  let dropped = 0;
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (kept >= MAX_MATH_MACROS) {
+      dropped++;
+      continue;
+    }
+    if (!key || typeof value !== "string" || value.length > MAX_MATH_MACRO_LENGTH) {
+      dropped++;
+      continue;
+    }
+    out[key] = value;
+    kept++;
+  }
+  if (dropped > 0) {
+    console.warn(
+      `[tuiMarkdown] Dropped ${dropped} entr${dropped === 1 ? "y" : "ies"} from "markdown.math.macros" ` +
+        `(limit: ${MAX_MATH_MACROS} macros, ${MAX_MATH_MACRO_LENGTH} characters per definition).`,
+    );
+  }
+  return out;
+}
+
 function getListIndentation(document: vscode.TextDocument): {
   indentation: { style: "space" | "tab"; size: number };
   tabSize: number;
@@ -128,6 +178,7 @@ export function buildConfigMessage(document: vscode.TextDocument): ConfigMessage
     autoHideToolbar: getAutoHideToolbar(),
     listIndentation: indentation,
     tabSize,
+    mathMacros: getMathMacros(document),
   };
 }
 
@@ -148,6 +199,7 @@ export function handleConfigurationChange(
     e.affectsConfiguration("tuiMarkdown.highlightCurrentLine") ||
     e.affectsConfiguration("tuiMarkdown.autoHideToolbar") ||
     e.affectsConfiguration("tuiMarkdown.listIndent", document.uri) ||
+    e.affectsConfiguration("markdown.math.macros") ||
     e.affectsConfiguration("editor.tabSize", {
       uri: document.uri,
       languageId: document.languageId || "markdown",

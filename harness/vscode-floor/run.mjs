@@ -579,6 +579,119 @@ async function driveTransientKeystroke(base, session, contextId) {
 }
 
 /**
+ * Type, then press the save keystroke before the 300 ms debounce has fired
+ * (#167). The host decides the rounds and reads the answer (the file on disk
+ * and `document.isDirty`); this side only types and presses keys.
+ *
+ * The save is a REAL key event, never `workbench.action.files.save`: the path
+ * under test is the user's, where the keydown leaves the webview through VS
+ * Code's own forwarding and the workbench resolves it to the save command.
+ * Calling the command would skip exactly the ordering #167 is about.
+ *
+ * Rounds rendezvous one at a time on `phase-saveflush-<i>`, whose content is
+ * the mode: `slow` waits past the debounce before pressing (the control, which
+ * proves the keystroke reaches the save command on this build at all, so a
+ * red fast round cannot be a keybinding that never fired), `fast` presses at
+ * once. `phase-saveflush-end` ends the loop. Each round types its own token,
+ * so a round can only be satisfied by its own text.
+ */
+async function driveSaveFlush(base, session, contextId) {
+  const roundMarker = (i) => path.join(base, `phase-saveflush-${i}`);
+  const endMarker = path.join(base, "phase-saveflush-end");
+  const write = (file, value) => {
+    try {
+      fs.writeFileSync(file, JSON.stringify(value), "utf8");
+    } catch {
+      /* the base is gone; the run is over anyway */
+    }
+  };
+  // Ctrl on linux and windows, Cmd on darwin: CDP modifier bits 2 and 4.
+  const isMac = process.platform === "darwin";
+  const modifiers = isMac ? 4 : 2;
+  const modKey = isMac
+    ? { key: "Meta", code: "MetaLeft", windowsVirtualKeyCode: 91, nativeVirtualKeyCode: 91 }
+    : { key: "Control", code: "ControlLeft", windowsVirtualKeyCode: 17, nativeVirtualKeyCode: 17 };
+
+  const evaluate = async (expression) => {
+    const result = await session.send("Runtime.evaluate", {
+      expression,
+      contextId,
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    if (result.exceptionDetails) throw new Error(result.exceptionDetails.text ?? "evaluate threw");
+    return result.result.value;
+  };
+
+  for (let i = 0; ; i++) {
+    const deadline = Date.now() + 45000;
+    while (!fs.existsSync(roundMarker(i)) && !fs.existsSync(endMarker) && Date.now() < deadline) {
+      await sleep(100);
+    }
+    if (!fs.existsSync(roundMarker(i))) return;
+    const doneFile = path.join(base, `phase-saveflush-${i}-done`);
+    if (!session || contextId == null) {
+      write(doneFile, { error: "no webview context to drive" });
+      continue;
+    }
+    const mode = fs.readFileSync(roundMarker(i), "utf8").trim();
+    const token = `SAVEFLUSH${i}X`;
+    try {
+      // Caret at the end of the first paragraph, re-placed every round: the
+      // save between rounds can reach the webview as an update.
+      const placed = await evaluate("(() => {" +
+        "const root = document.querySelector('.tiptap');" +
+        "if (!root) return 'no .tiptap';" +
+        "const target = root.querySelector('p');" +
+        "if (!target) return 'no paragraph';" +
+        "root.focus();" +
+        "const range = document.createRange();" +
+        "range.selectNodeContents(target);" +
+        "range.collapse(false);" +
+        "const sel = window.getSelection();" +
+        "sel.removeAllRanges();" +
+        "sel.addRange(range);" +
+        "return 'ok';" +
+      "})()");
+      if (placed !== "ok") throw new Error(`caret: ${placed}`);
+
+      const started = Date.now();
+      await session.send("Input.insertText", { text: token });
+      if (mode === "slow") await sleep(1200);
+      const pressedAt = Date.now();
+      await session.send("Input.dispatchKeyEvent", { type: "rawKeyDown", modifiers, ...modKey });
+      await session.send("Input.dispatchKeyEvent", {
+        type: "rawKeyDown",
+        modifiers,
+        key: "s",
+        code: "KeyS",
+        windowsVirtualKeyCode: 83,
+        nativeVirtualKeyCode: 83,
+      });
+      await session.send("Input.dispatchKeyEvent", {
+        type: "keyUp",
+        modifiers,
+        key: "s",
+        code: "KeyS",
+        windowsVirtualKeyCode: 83,
+        nativeVirtualKeyCode: 83,
+      });
+      await session.send("Input.dispatchKeyEvent", { type: "keyUp", modifiers: 0, ...modKey });
+      const gap = pressedAt - started;
+      // The debounce, the host's WorkspaceEdit, the save, and a late edit
+      // marking the document dirty again: all of it inside this wait.
+      await sleep(1500);
+      const inEditor = await evaluate(
+        "(document.querySelector('.tiptap')?.textContent ?? '').includes(" + JSON.stringify(token) + ")",
+      );
+      write(doneFile, { token, mode, gapMs: gap, inEditor });
+    } catch (err) {
+      write(doneFile, { token, mode, error: `threw: ${err.message}` });
+    }
+  }
+}
+
+/**
  * Operate each 2.17 editing surface in the live webview and report one result
  * per surface (#84).
  *
@@ -2901,6 +3014,11 @@ async function main() {
   // which the document is dirty for a legitimate reason and this could not
   // tell the two apart.
   await driveTransientKeystroke(base, webviewSession, webview?.contextId);
+
+  // #167: after the transient phase, so its clean-document assertion is
+  // untouched, and before FLOORPROBE, which needs the document dirty for its
+  // own reason. The host saves between rounds and leaves the document clean.
+  await driveSaveFlush(base, webviewSession, webview?.contextId);
 
   const driven = await driveInteractions(base, webviewSession, webview?.contextId, sessions);
 

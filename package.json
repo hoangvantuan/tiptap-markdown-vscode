@@ -150,10 +150,28 @@
         "displayName": "Tiptap Markdown Editor",
         "selector": [
           {
-            "filenamePattern": "*.md"
+            "filenamePattern": "file:/**/*.md"
           },
           {
-            "filenamePattern": "*.markdown"
+            "filenamePattern": "file:/**/*.markdown"
+          },
+          {
+            "filenamePattern": "vscode-remote:/**/*.md"
+          },
+          {
+            "filenamePattern": "vscode-remote:/**/*.markdown"
+          },
+          {
+            "filenamePattern": "vscode-vfs:/**/*.md"
+          },
+          {
+            "filenamePattern": "vscode-vfs:/**/*.markdown"
+          },
+          {
+            "filenamePattern": "untitled:/**/*.md"
+          },
+          {
+            "filenamePattern": "untitled:/**/*.markdown"
           }
         ],
         "priority": "default"
