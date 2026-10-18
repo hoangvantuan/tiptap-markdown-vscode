@@ -893,6 +893,75 @@ async function hoverParagraphForHandle(
   return { spot, handle };
 }
 
+/**
+ * Put the caret in a visible top-level paragraph with a REAL press and release.
+ *
+ * The #173 and #174 checks both INSERT AT THE CARET, and by the time they run
+ * the caret is whatever the last probe left behind. A caret parked in a code
+ * block, a table cell or a mermaid preview takes the insertion somewhere the
+ * host reading cannot see, and the check then reports a working feature as
+ * broken. A scripted DOM range is not an alternative (AGENTS.md: it does not
+ * reach ProseMirror), so this presses the mouse over a paragraph row found by
+ * asking the page what is UNDER the pointer, and then CONFIRMS the selection
+ * really moved by reading the block that holds the DOM selection anchor.
+ *
+ * The retry loop waits for the thing it asserts: the caret landing in a
+ * paragraph, not merely for a paragraph being on screen.
+ *
+ * `target` is what `findWebviewByHeading` returns, which carries the session
+ * the input has to go through: `Input.*` is per-target, and the wave-11
+ * coordinator is handed a list of sessions rather than the one the webview
+ * happens to live in.
+ */
+async function clickTopLevelParagraph(target, beat = () => {}, attempts = 8) {
+  const session = target.session;
+  let last = { ok: false, why: "never attempted" };
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    beat();
+    const spot = await target.evaluate(
+      "(() => {" +
+      "const container = document.getElementById('editor-container');" +
+      "if (!container) return null;" +
+      "const cr = container.getBoundingClientRect();" +
+      "const x = Math.round(cr.left + cr.width / 2);" +
+      "const y0 = Math.max(0, Math.ceil(cr.top) + 2);" +
+      "const y1 = Math.min(window.innerHeight || 0, Math.floor(cr.bottom) - 2);" +
+      "for (let y = y0; y <= y1; y += 4) {" +
+      "  const el = document.elementFromPoint(x, y);" +
+      "  const p = el && el.closest ? el.closest('.tiptap > p') : null;" +
+      "  if (p) return { x, y, label: 'P:' + (p.textContent || '').trim().slice(0, 18) };" +
+      "}" +
+      "const first = document.querySelector('.tiptap > p');" +
+      "if (first) first.scrollIntoView({ block: 'center' });" +
+      "return null;" +
+      "})()",
+    );
+    if (spot && spot.y >= 0) {
+      const common = { x: spot.x, y: spot.y, button: "left", clickCount: 1 };
+      await session.send("Input.dispatchMouseEvent", { type: "mousePressed", buttons: 1, ...common });
+      await session.send("Input.dispatchMouseEvent", { type: "mouseReleased", buttons: 0, ...common });
+      await sleep(200);
+      const caret = await target.evaluate(
+        "(() => {" +
+        "const sel = window.getSelection();" +
+        "const a = sel && sel.rangeCount ? sel.anchorNode : null;" +
+        "const el = a ? (a.nodeType === 1 ? a : a.parentElement) : null;" +
+        "const b = el && el.closest ? el.closest('.tiptap > *') : null;" +
+        "return b ? b.tagName + ':' + (b.textContent || '').trim().slice(0, 60) : null;" +
+        "})()",
+      );
+      last = { ok: false, spot, caret };
+      if (typeof caret === "string" && caret.startsWith("P:")) {
+        return { ok: true, spot, caret };
+      }
+    } else {
+      last = { ok: false, why: "no visible .tiptap > p on screen", spot };
+      await sleep(300);
+    }
+  }
+  return last;
+}
+
 async function driveSurfaces(evaluate, session, sessions, beat = () => {}) {
   const results = [];
   // Every recorded check is also a heartbeat. The host waits on THIS, not on a
@@ -3310,6 +3379,138 @@ async function driveWave11Checks(base, debugPort, sessions) {
           continue;
         }
         writeDone(i, { ok: true, ...reading });
+      } else if (cmd.op === "pickImageFromFile") {
+        // #173: the toolbar button, the dialog, the write and the insert are all
+        // asynchronous, so this measures the DOM (the host cannot see it) and
+        // the host asserts what landed on disk and in the document text.
+        const wv = await findWebviewByHeading(debugPort, sessions, "Heading One", beat);
+        if (!wv) {
+          writeDone(i, { ok: false, error: "could not find sample.md webview" });
+          continue;
+        }
+        const countPicked = "(() => {" +
+          "return document.querySelectorAll('.tiptap img[alt=\"Picked Photo\"]').length;" +
+          "})()";
+        const before = await wv.evaluate(countPicked);
+        const caretRes = await clickTopLevelParagraph(wv, beat);
+        if (!caretRes.ok) {
+          writeDone(i, {
+            ok: false,
+            error: "could not put the caret in a paragraph: " + JSON.stringify(caretRes),
+          });
+          continue;
+        }
+        const clicked = await wv.evaluate(
+          "(() => {" +
+          "const btn = document.querySelector('.toolbar-btn[data-command=\"imageFromFile\"]');" +
+          "if (!btn) return 'no toolbar image-from-file button';" +
+          "btn.scrollIntoView({ block: 'center' });" +
+          "btn.click();" +
+          "return 'ok';" +
+          "})()",
+        );
+        if (clicked !== "ok") {
+          writeDone(i, { ok: false, error: clicked, caret: caretRes.caret });
+          continue;
+        }
+        // Poll for the THING this step asserts: the picked image node, not for
+        // a click having happened.
+        const pollStart = Date.now();
+        let imgSrc = "";
+        let after = before;
+        while (Date.now() - pollStart < 12000) {
+          beat();
+          await sleep(250);
+          const read = await wv.evaluate(
+            "(() => {" +
+            "const imgs = Array.from(document.querySelectorAll('.tiptap img[alt=\"Picked Photo\"]'));" +
+            "const hit = imgs[imgs.length - 1];" +
+            "return { count: imgs.length, src: hit ? (hit.getAttribute('src') || '') : '' };" +
+            "})()",
+          );
+          after = read?.count ?? after;
+          imgSrc = read?.src ?? "";
+          if (imgSrc) break;
+        }
+        // A data: URL would mean the bytes came back through the webview, which
+        // is the thing #173 exists to avoid; a relative path would mean the
+        // display transform never ran.
+        const isWebviewUri = /vscode-resource\.vscode-cdn\.net|vscode-webview/.test(imgSrc);
+        writeDone(i, {
+          ok: true,
+          caret: caretRes.caret,
+          before,
+          after,
+          imgSrc,
+          isWebviewUri,
+          notDataUri: !imgSrc.startsWith("data:"),
+        });
+      } else if (cmd.op === "pasteRemoteHtml") {
+        // #174. A real ClipboardEvent carrying text/html is dispatched on the
+        // editor DOM: `editorProps.handlePaste` reads `clipboardData`, reports
+        // the https sources and then returns false, so ProseMirror's own paste
+        // still runs and the image nodes exist for the host to answer about.
+        const wv = await findWebviewByHeading(debugPort, sessions, "Heading One", beat);
+        if (!wv) {
+          writeDone(i, { ok: false, error: "could not find sample.md webview" });
+          continue;
+        }
+        const caretRes = await clickTopLevelParagraph(wv, beat);
+        if (!caretRes.ok) {
+          writeDone(i, {
+            ok: false,
+            error: "could not put the caret in a paragraph: " + JSON.stringify(caretRes),
+          });
+          continue;
+        }
+        const htmlJson = JSON.stringify(String(cmd.html));
+        const altJson = JSON.stringify(String(cmd.alt));
+        const pasted = await wv.evaluate(
+          "(() => {" +
+          "const target = document.querySelector('.tiptap');" +
+          "if (!target) return { ok: false, why: 'no .tiptap' };" +
+          "const dt = new DataTransfer();" +
+          "dt.setData('text/html', " + htmlJson + ");" +
+          "dt.setData('text/plain', 'floor remote paste');" +
+          "const ev = new ClipboardEvent('paste', {" +
+          "  bubbles: true, cancelable: true, composed: true, clipboardData: dt," +
+          "});" +
+          "target.dispatchEvent(ev);" +
+          "return { ok: true };" +
+          "})()",
+        );
+        if (!pasted?.ok) {
+          writeDone(i, { ok: false, error: pasted?.why ?? "paste dispatch failed", caret: caretRes.caret });
+          continue;
+        }
+        // Poll for the pasted node with this alt, which is what proves the paste
+        // reached the document at all. The host's answer arrives separately.
+        const pollStart = Date.now();
+        let src = "";
+        let read = null;
+        while (Date.now() - pollStart < 8000) {
+          beat();
+          await sleep(200);
+          read = await wv.evaluate(
+            "(() => {" +
+            "const imgs = Array.from(document.querySelectorAll('.tiptap img'));" +
+            "const hit = imgs.find((im) => (im.getAttribute('alt') || '') === " + altJson + ");" +
+            "const httpsImgs = imgs.filter((im) => /^https:\\/\\//.test(im.getAttribute('src') || '')).length;" +
+            "return { src: hit ? (hit.getAttribute('src') || '') : '', httpsImgs, imgCount: imgs.length };" +
+            "})()",
+          );
+          src = read?.src ?? "";
+          if (src) break;
+        }
+        writeDone(i, {
+          ok: true,
+          caret: caretRes.caret,
+          present: Boolean(src),
+          src,
+          stillRemote: /^https:\/\//.test(src),
+          imgCount: read?.imgCount ?? -1,
+          httpsImgs: read?.httpsImgs ?? -1,
+        });
       } else {
         writeDone(i, { ok: false, error: `unknown op: ${String(cmd.op)}` });
       }

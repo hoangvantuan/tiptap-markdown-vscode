@@ -885,6 +885,19 @@ async function runSchemeAssociationCheck(uri: vscode.Uri): Promise<void> {
 }
 
 /**
+ * A real 1x1 PNG, for the two image checks below.
+ *
+ * Bytes, not a base64 string the extension decodes: the file picker's reply and
+ * the remote download both go through `writeImage`, which SNAPS the extension to
+ * the magic bytes (#177). A fake PNG would make those two checks read the
+ * corrected extension rather than the file's own name.
+ */
+const PNG_1X1 = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
+  "base64",
+);
+
+/**
  * Wave-11 post-drive floor checks (#172/#177 `saveImage` folder template +
  * magic-byte format sniffing, and #171 cross-file `#fragment` scroll across
  * both the unopened-target `pendingFragments` path and the already-open
@@ -903,6 +916,8 @@ async function runWave11FloorChecks(base: string, uri: vscode.Uri): Promise<void
   const progressPath = path.join(base, "phase-progress");
   const tuiConfig = vscode.workspace.getConfiguration("tuiMarkdown");
   const origSaveFolder = tuiConfig.inspect<string>("imageSaveFolder")?.workspaceValue;
+  const origDownloadRemote = tuiConfig.inspect<boolean>("downloadRemoteImagesOnPaste")
+    ?.workspaceValue;
   const otherPath = path.join(docFolder, "other.md");
   const WEBP_BYTES = Buffer.from([
     0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00,
@@ -942,6 +957,28 @@ async function runWave11FloorChecks(base: string, uri: vscode.Uri): Promise<void
         }
       }
     }
+  };
+
+  /**
+   * Put `sample.md` back to `text` WITHOUT saving a dirty document.
+   *
+   * The checks below write image files into the workspace and then reference
+   * them from the document, and a save of the version that references them
+   * fires `onDidSaveTextDocument`, which is the image-DELETE detection (#126):
+   * the restore would trash the file it had just written, and a referenced image
+   * would raise a modal prompt no one can answer. Writing the file with the
+   * editors closed goes around that entirely, which is why this does not use
+   * `d.save()`.
+   */
+  const restoreSample = async (text: string): Promise<void> => {
+    await saveDirtyDocs();
+    try {
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    } catch {
+      /* ignore */
+    }
+    await sleep(400);
+    fs.writeFileSync(uri.fsPath, text, "utf8");
   };
 
   try {
@@ -1128,6 +1165,269 @@ async function runWave11FloorChecks(base: string, uri: vscode.Uri): Promise<void
         false,
         err instanceof Error ? `${err.name}: ${err.message}` : String(err),
       );
+    }
+
+    // ---- 3. #173: the file picker writes the file and links it ----------
+    // `showOpenDialog` is a NATIVE dialog, out of reach of the DevTools
+    // protocol, so this is the half that has to happen here: the dialog is
+    // stubbed to hand back a real PNG on disk, and what the webview does with
+    // the answer is read over CDP by the `pickImageFromFile` op. The name is
+    // spelled with a SPACE, because the space is what the `<...>` wrapping in
+    // the saved markdown is for.
+    const PICK_NAME =
+      "insert image from file picker writes the file and inserts the relative link at the caret (#173)";
+    let pickSnapshot = "";
+    const pickerDir = path.join(docFolder, "picker-source");
+    try {
+      pickSnapshot = (await getSampleDoc()).getText();
+      fs.mkdirSync(pickerDir, { recursive: true });
+      fs.writeFileSync(path.join(pickerDir, "Picked Photo.png"), PNG_1X1);
+
+      const realShowOpenDialog = vscode.window.showOpenDialog;
+      let dialogCalls = 0;
+      let seenFilters = "";
+      let pickRes: any = null;
+      let markdown = "";
+      try {
+        (vscode.window as any).showOpenDialog = async (opts: any) => {
+          dialogCalls += 1;
+          seenFilters = JSON.stringify(opts?.filters ?? null);
+          return [vscode.Uri.file(path.join(pickerDir, "Picked Photo.png"))];
+        };
+
+        await saveDirtyDocs();
+        await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+        await sleep(400);
+        await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
+        await waitForCustomTab(20000);
+        await sleep(600);
+
+        pickRes = await sendStep({ op: "pickImageFromFile" });
+
+        // Wait for the thing asserted: the link in the DOCUMENT, which is two
+        // hops away (the webview's 300ms debounce, then the host's edit).
+        const deadline = Date.now() + 12000;
+        while (Date.now() < deadline) {
+          markdown = (await getSampleDoc()).getText();
+          if (markdown.includes("Picked Photo")) break;
+          await sleep(250);
+        }
+      } finally {
+        (vscode.window as any).showOpenDialog = realShowOpenDialog;
+      }
+
+      // `<images/...>`: the angle brackets are #173's own half. Asserted on the
+      // exact captured path, so a bare `images/Picked Photo.png` (the #173
+      // regression this repo fixed) is not a match.
+      const link = /!\[Picked Photo\]\(<(images\/[^>]+)>\)/.exec(markdown);
+      const savedRelative = link ? link[1] : "";
+      const onDisk = savedRelative
+        ? fs.existsSync(path.join(docFolder, ...savedRelative.split("/")))
+        : false;
+      const oneDialog = dialogCalls === 1;
+      const imageFilter = seenFilters.includes("Images") && seenFilters.includes("png");
+      const domOk =
+        Boolean(pickRes?.ok) &&
+        pickRes?.before === 0 &&
+        pickRes?.after === 1 &&
+        pickRes?.isWebviewUri === true &&
+        pickRes?.notDataUri === true;
+
+      record(
+        PICK_NAME,
+        oneDialog && imageFilter && savedRelative === "images/Picked Photo.png" && onDisk && domOk,
+        `dialogs=${dialogCalls} filters=${seenFilters} saved=${JSON.stringify(savedRelative)} ` +
+          `onDisk=${onDisk} dom(before=${pickRes?.before},after=${pickRes?.after},caret=${JSON.stringify(pickRes?.caret ?? null)},` +
+          `webviewUri=${pickRes?.isWebviewUri},notData=${pickRes?.notDataUri}) ` +
+          `imgSrc=${JSON.stringify(String(pickRes?.imgSrc ?? "").slice(-44))}` +
+          (pickRes?.error ? ` error=${pickRes.error}` : ""),
+      );
+    } catch (err) {
+      record(
+        PICK_NAME,
+        false,
+        err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+      );
+    } finally {
+      await restoreSample(pickSnapshot);
+      fs.rmSync(pickerDir, { recursive: true, force: true });
+      for (const n of fs.existsSync(path.join(docFolder, "images")) ? fs.readdirSync(path.join(docFolder, "images")) : []) {
+        if (n.startsWith("Picked Photo")) fs.rmSync(path.join(docFolder, "images", n), { force: true });
+      }
+    }
+
+    // ---- 4. #174: pasted https images, opt-in ---------------------------
+    // Two halves, and the FIRST is the security half: with
+    // `downloadRemoteImagesOnPaste` off the extension must not make a request
+    // at all, so `globalThis.fetch` is counted rather than trusted. Only the two
+    // sentinel URLs are answered here; everything else passes to the real fetch.
+    const REMOTE_NAME =
+      "pasting HTML with https images respects downloadRemoteImagesOnPaste (#174)";
+    const OK_URL = "https://floor-remote.test/ok.png";
+    const FAIL_URL = "https://floor-remote.test/fail.png";
+    let remoteSnapshot = "";
+    try {
+      remoteSnapshot = (await getSampleDoc()).getText();
+      const realFetch = globalThis.fetch;
+      const realFetchDescriptor = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+      const fetched: string[] = [];
+      let phase1: any = null;
+      let phase2: any = null;
+      try {
+        // defineProperty rather than assignment: `fetch` is installed as an
+        // accessor by the host runtime, and a plain assignment to a getter-only
+        // property throws in the strict mode this module runs in.
+        Object.defineProperty(globalThis, "fetch", {
+          value: async (input: any, init?: any) => {
+            const url = typeof input === "string" ? input : String(input?.url ?? input);
+            if (url === OK_URL || url === FAIL_URL) {
+              fetched.push(url);
+              if (url === FAIL_URL) {
+                return new Response("forbidden", {
+                  status: 403,
+                  headers: { "content-type": "text/plain" },
+                });
+              }
+              return new Response(PNG_1X1, {
+                status: 200,
+                headers: { "content-type": "image/png" },
+              });
+            }
+            return realFetch(input, init);
+          },
+          configurable: true,
+          writable: true,
+        });
+
+        // Phase 1: setting OFF.
+        await tuiConfig.update(
+          "downloadRemoteImagesOnPaste",
+          false,
+          vscode.ConfigurationTarget.Workspace,
+        );
+        await sleep(400);
+        await saveDirtyDocs();
+        await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+        await sleep(400);
+        await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
+        await waitForCustomTab(20000);
+        await sleep(600);
+
+        const offPaste = await sendStep({
+          op: "pasteRemoteHtml",
+          alt: "r1",
+          html: `<p><img src="${OK_URL}" alt="r1"></p>`,
+        });
+        const offDeadline = Date.now() + 10000;
+        let offText = "";
+        while (Date.now() < offDeadline) {
+          offText = (await getSampleDoc()).getText();
+          if (offText.includes(OK_URL)) break;
+          await sleep(250);
+        }
+        phase1 = {
+          fetches: fetched.length,
+          keptRemote: offText.includes(`![r1](${OK_URL})`),
+          present: Boolean(offPaste?.present),
+          stillRemote: offPaste?.stillRemote === true,
+          caret: offPaste?.caret,
+        };
+
+        // Phase 2: setting ON, one image that answers and one that does not.
+        const beforeOn = fetched.length;
+        await restoreSample(remoteSnapshot);
+        // The restore writes the file with the editors closed, so the next mount
+        // must not see phase 1's paste. Read the bytes ON DISK for that: the
+        // in-memory model can still hold the version that was saved on the way
+        // out, and phase 2 reading that would prove nothing about phase 1.
+        const restoredClean = !fs.readFileSync(uri.fsPath, "utf8").includes("floor-remote.test");
+        await tuiConfig.update(
+          "downloadRemoteImagesOnPaste",
+          true,
+          vscode.ConfigurationTarget.Workspace,
+        );
+        await sleep(400);
+        await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
+        await waitForCustomTab(20000);
+        await sleep(600);
+
+        const onPaste = await sendStep({
+          op: "pasteRemoteHtml",
+          alt: "r2ok",
+          html: `<p><img src="${OK_URL}" alt="r2ok"><img src="${FAIL_URL}" alt="r2bad"></p>`,
+        });
+        const onDeadline = Date.now() + 20000;
+        let onText = "";
+        while (Date.now() < onDeadline) {
+          onText = (await getSampleDoc()).getText();
+          if (/!\[r2ok\]\(images\//.test(onText) && onText.includes(`![r2bad](${FAIL_URL})`)) break;
+          await sleep(250);
+        }
+        const local = /!\[r2ok\]\((images\/[^)\s]+\.png)\)/.exec(onText);
+        phase2 = {
+          fetches: fetched.length - beforeOn,
+          okFetched: fetched.includes(OK_URL),
+          failFetched: fetched.includes(FAIL_URL),
+          localPath: local ? local[1] : "",
+          localOnDisk: local ? fs.existsSync(path.join(docFolder, ...local[1].split("/"))) : false,
+          keptFailed: onText.includes(`![r2bad](${FAIL_URL})`),
+          present: Boolean(onPaste?.present),
+          caret: onPaste?.caret,
+          restoredClean,
+          httpsImgs: onPaste?.httpsImgs,
+          imgCount: onPaste?.imgCount,
+        };
+
+        record(
+          REMOTE_NAME,
+          phase1.fetches === 0 &&
+            phase1.keptRemote &&
+            phase1.present &&
+            phase1.stillRemote &&
+            phase2.fetches === 2 &&
+            phase2.okFetched &&
+            phase2.failFetched &&
+            /^images\/image-.+\.png$/.test(phase2.localPath) &&
+            phase2.localOnDisk &&
+            phase2.keptFailed &&
+            phase2.present &&
+            phase2.restoredClean,
+          `off(fetches=${phase1.fetches},keptRemote=${phase1.keptRemote},nodeInDom=${phase1.present},caret=${JSON.stringify(phase1.caret)}) ` +
+            `on(fetches=${phase2.fetches},local=${JSON.stringify(phase2.localPath)},onDisk=${phase2.localOnDisk},` +
+            `keptFailed=${phase2.keptFailed},nodeInDom=${phase2.present},caret=${JSON.stringify(phase2.caret)},` +
+            `restoredClean=${phase2.restoredClean},httpsImgs=${phase2.httpsImgs}/${phase2.imgCount}) ` +
+            `urls=[${fetched.join(" ")}]`,
+        );
+      } finally {
+        if (realFetchDescriptor) {
+          Object.defineProperty(globalThis, "fetch", realFetchDescriptor);
+        } else {
+          delete (globalThis as any).fetch;
+        }
+        try {
+          await tuiConfig.update(
+            "downloadRemoteImagesOnPaste",
+            origDownloadRemote,
+            vscode.ConfigurationTarget.Workspace,
+          );
+        } catch {
+          /* workspace is temporary */
+        }
+      }
+    } catch (err) {
+      record(
+        REMOTE_NAME,
+        false,
+        err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+      );
+    } finally {
+      await restoreSample(remoteSnapshot);
+      const imagesDir = path.join(docFolder, "images");
+      if (fs.existsSync(imagesDir)) {
+        for (const n of fs.readdirSync(imagesDir)) {
+          if (n.startsWith("image-")) fs.rmSync(path.join(imagesDir, n), { force: true });
+        }
+      }
     }
   } finally {
     try {
