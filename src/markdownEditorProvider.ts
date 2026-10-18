@@ -6,6 +6,7 @@ import { ImageLedger } from "./host/imageLedger";
 import { EditorSession } from "./host/session";
 import { handleConfigurationChange } from "./host/config";
 import { handleDocumentSave } from "./host/documentSave";
+import { registerScrollTarget } from "./host/fragmentNavigation";
 import {
   dispatchMessage,
   type HandlerContext,
@@ -139,6 +140,11 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
       vscode.workspace.onDidSaveTextDocument((savedDoc) =>
         handleDocumentSave(savedDoc, document, ledger),
       ),
+    );
+
+    // Where a followed `other.md#heading` link can reach this panel (#171).
+    session.disposables.push(
+      registerScrollTarget(document.uri, webviewPanel, session.webview),
     );
 
     webviewPanel.onDidDispose(() => {

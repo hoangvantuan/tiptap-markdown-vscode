@@ -227,6 +227,16 @@ export interface BacklinksMessage {
   links: BacklinkItem[];
 }
 
+/**
+ * Scroll to the heading a followed link named (#171). `fragment` is the raw
+ * text after `#`: heading text from a wiki link or a slug from a markdown link;
+ * the webview compares both through `fragmentMatchesHeading`.
+ */
+export interface ScrollToMessage {
+  type: "scrollTo";
+  fragment: string;
+}
+
 
 export type HostToWebviewMessage =
   | UpdateMessage
@@ -243,4 +253,5 @@ export type HostToWebviewMessage =
   | FileSearchResultsMessage
   | WikiLinkSearchResultsMessage
   | ExportDoneMessage
-  | BacklinksMessage;
+  | BacklinksMessage
+  | ScrollToMessage;

@@ -32,7 +32,7 @@ import {
   type FrontmatterFormat,
 } from "./frontmatter";
 import { LineHighlight } from "./line-highlight-plugin";
-import { fragmentMatchesHeading } from "./heading-slug";
+import { scrollEditorToHeading, scheduleLatchedScroll } from "./heading-slug";
 import { setupImageEditOverlay, handleUrlEditResponse, handleImageRenameResponse, setOnImageRenamed, promptForImageUrl } from "./image-edit-plugin";
 import {
   setImageMap,
@@ -1584,42 +1584,94 @@ function setupToolbarHandlers(): void {
 }
 
 /**
+ * Fragment waiting for the initial `update` to mount the editor (#171).
+ * `ready` posts `scrollTo` immediately while `updateWebview()` is debounced
+ * 50 ms on the host, so at initial open `scrollTo` arrives before `editor`
+ * exists and is held here until `update` finishes building the document.
+ */
+let pendingScrollFragment: string | null = null;
+let cancelScheduledScroll: (() => void) | null = null;
+
+/**
  * Scroll the editor to the first heading a link fragment names, and put the
  * caret in it. Returns whether a heading matched.
  *
  * `fragment` is whatever followed the `#`: a slug from a markdown link
  * (`#my-heading`) or heading text from a wiki link (`[[#My Heading]]`);
- * `fragmentMatchesHeading` compares both through the one slug rule.
+ * `scrollEditorToHeading` compares both through the one slug rule in
+ * `heading-slug.ts` and runs `setTextSelection` inside
+ * `contentSync.guardExtensionUpdate` so jumping never dirties the document.
  */
-function scrollToHeading(fragment: string, behavior: ScrollBehavior = "smooth"): boolean {
+function scrollToHeading(
+  fragment: string,
+  behavior: ScrollBehavior = "smooth",
+  select = true,
+): boolean {
   if (!editor) return false;
-  const { doc } = editor.state;
-  let target = -1;
-  doc.descendants((node, pos) => {
-    // `return false` below only skips this node's children, not its siblings,
-    // so the latch is what makes the FIRST matching heading win.
-    if (target !== -1) return false;
-    if (node.type.name !== "heading") return;
-    // The slug rule lives in heading-slug.ts, and only there. Two copies of it
-    // is how an anchor link and the heading it points at stop matching.
-    if (fragmentMatchesHeading(fragment, node.textContent)) target = pos;
-    return false;
+  return scrollEditorToHeading(editor, fragment, {
+    behavior,
+    select,
+    guardTransaction: (fn) => contentSync.guardExtensionUpdate(fn),
   });
-  if (target === -1) return false;
-  editor.commands.setTextSelection(target + 1);
-  const dom = editor.view.nodeDOM(target);
-  if (dom instanceof HTMLElement) {
-    const scroller = document.getElementById("editor-container");
-    if (scroller) {
-      const elRect = dom.getBoundingClientRect();
-      const scrollerRect = scroller.getBoundingClientRect();
-      const targetTop = elRect.top - scrollerRect.top + scroller.scrollTop - 60;
-      scroller.scrollTo({ top: Math.max(0, targetTop), behavior });
-    } else {
-      dom.scrollIntoView({ behavior, block: "start" });
+}
+
+/**
+ * Schedule a host-driven `scrollTo` jump (#171).
+ *
+ * Two hazards at document open:
+ * 1. A covered or background window never receives `requestAnimationFrame`
+ *    callbacks in Chromium (#112), so the initial jump uses the latched
+ *    `requestAnimationFrame(once)` + `setTimeout(once, 50)` pair via
+ *    `scheduleLatchedScroll` and scrolls with `"instant"` behavior (which does
+ *    not depend on animation frames to advance).
+ * 2. Mermaid diagrams (500 ms debounce + async lazy artifact render) and images
+ *    above the target heading grow `.tiptap` asynchronously after the initial
+ *    scroll, pushing the heading down. A short-lived `ResizeObserver` on
+ *    `.tiptap` re-aligns `#editor-container` whenever `.tiptap` changes height
+ *    during the initial 2000 ms settle window, and disconnects immediately on
+ *    any user input (`wheel`, `mousedown`, `keydown`, `touchstart`).
+ */
+function scheduleScrollToHeading(fragment: string): void {
+  cancelScheduledScroll?.();
+  cancelScheduledScroll = null;
+
+  let stopObserver: (() => void) | null = null;
+  const cancelLatch = scheduleLatchedScroll(() => {
+    if (!scrollToHeading(fragment, "instant", true)) return;
+    if (typeof ResizeObserver === "undefined") return;
+    const tiptapEl = document.querySelector(".tiptap") as HTMLElement | null;
+    if (!tiptapEl) return;
+
+    let lastHeight = tiptapEl.offsetHeight;
+    const observer = new ResizeObserver(() => {
+      const nextHeight = tiptapEl.offsetHeight;
+      if (nextHeight === lastHeight) return;
+      lastHeight = nextHeight;
+      scrollToHeading(fragment, "instant", false);
+    });
+    observer.observe(tiptapEl);
+
+    const stopEvents = ["wheel", "mousedown", "keydown", "touchstart"] as const;
+    const settleTimer = setTimeout(() => cleanup(), 2000);
+    const cleanup = () => {
+      if (!stopObserver) return;
+      stopObserver = null;
+      clearTimeout(settleTimer);
+      observer.disconnect();
+      for (const evt of stopEvents) {
+        window.removeEventListener(evt, cleanup);
+      }
+    };
+    stopObserver = cleanup;
+    for (const evt of stopEvents) {
+      window.addEventListener(evt, cleanup, { passive: true });
     }
-  }
-  return true;
+  });
+
+  cancelScheduledScroll = () => {
+    cancelLatch();
+    stopObserver?.();
+  };
 }
 
 window.addEventListener("message", async (event) => {
@@ -1708,6 +1760,11 @@ window.addEventListener("message", async (event) => {
                 if (saved?.collapsedHeadings?.length) {
                   setCollapsedHeadings(editor.view, saved.collapsedHeadings);
                 }
+              }
+              if (pendingScrollFragment !== null) {
+                const fragment = pendingScrollFragment;
+                pendingScrollFragment = null;
+                scheduleScrollToHeading(fragment);
               }
               // Update TOC after content change (skip if just initialized — initTocSidebar already did it)
               if (!justInitialized) updateTocFromEditor(editor, true);
@@ -1867,6 +1924,16 @@ window.addEventListener("message", async (event) => {
     case "backlinks":
       if (Array.isArray(message.links)) {
         updateBacklinks(message.links);
+      }
+      break;
+    case "scrollTo":
+      if (typeof message.fragment === "string" && message.fragment) {
+        if (editor) {
+          pendingScrollFragment = null;
+          scheduleScrollToHeading(message.fragment);
+        } else {
+          pendingScrollFragment = message.fragment;
+        }
       }
       break;
   }
