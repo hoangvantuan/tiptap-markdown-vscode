@@ -4,6 +4,10 @@ All notable changes to "Tiptap Markdown Editor" (formerly "TUI Markdown Editor")
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-10-19
+
+Heading links across notes, keyboard block moves, image templates and file insert, and a save that keeps the last keystroke.
+
 ### Added
 
 - **A link to a heading in another note scrolls there (#171).** `[[Note#Heading]]`, `[[Note#Heading|alias]]` and `[text](other.md#heading)` open the target and scroll it to the heading, with the caret in it. A wiki fragment is the heading's text and a markdown fragment is its slug; both are compared through the one slug rule, so either kind finds the same heading. It works whether the target is not yet open, already open in another tab, or opens in the text editor. Only a link that names a fragment scrolls; nothing else remembers or restores a position.
