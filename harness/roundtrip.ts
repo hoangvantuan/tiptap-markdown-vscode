@@ -42,6 +42,8 @@ import { runCodeBlockSeam } from "./codeblock-seam";
 import { runContentSyncSeam } from "./content-sync-seam";
 import { runImagePathSeam } from "./image-path-seam";
 import { runMermaidScheduleSeam } from "./mermaid-schedule-seam";
+import { runBlockKeysSeam } from "./block-keys-seam";
+import { runImageInsertSeam } from "./image-insert-seam";
 import { formatUnifiedDiff } from "./diff";
 
 const MAX_DIFF_LINES = 120;
@@ -271,6 +273,16 @@ async function main(): Promise<number> {
       name: "seams/mermaid-schedule.txt",
       goldenPath: path.join(repoRoot, "harness", "golden", "seams", "mermaid-schedule.txt"),
       run: runMermaidScheduleSeam,
+    },
+    {
+      name: "seams/block-keys.txt",
+      goldenPath: path.join(repoRoot, "harness", "golden", "seams", "block-keys.txt"),
+      run: runBlockKeysSeam,
+    },
+    {
+      name: "seams/image-insert.txt",
+      goldenPath: path.join(repoRoot, "harness", "golden", "seams", "image-insert.txt"),
+      run: runImageInsertSeam,
     },
   ];
 

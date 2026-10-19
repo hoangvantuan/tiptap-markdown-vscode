@@ -1,0 +1,392 @@
+block-keys seam: BlockKeysExtension (src/webview/block-keys-extension.ts)
+verifies Alt-ArrowUp/Down block moves and Mod-(Shift-)Enter paragraph insertion (#178)
+
+[case 1: paragraph-down-mid-document]
+  key: Alt+ArrowDown
+  cursor before: two
+  handled: yes
+  document changed: yes
+  caret after: paragraph "two"
+  markdown:
+    one
+    
+    three
+    
+    two
+
+[case 2: paragraph-up-mid-document]
+  key: Alt+ArrowUp
+  cursor before: two
+  handled: yes
+  document changed: yes
+  caret after: paragraph "two"
+  markdown:
+    two
+    
+    one
+    
+    three
+
+[case 3: first-block-up-is-noop]
+  key: Alt+ArrowUp
+  cursor before: one
+  handled: yes
+  document changed: no
+  caret after: paragraph "one"
+  markdown:
+    one
+    
+    two
+    
+    three
+
+[case 4: last-block-down-is-noop]
+  key: Alt+ArrowDown
+  cursor before: three
+  handled: yes
+  document changed: no
+  caret after: paragraph "three"
+  markdown:
+    one
+    
+    two
+    
+    three
+
+[case 5: single-block-document-up]
+  key: Alt+ArrowUp
+  cursor before: only
+  handled: yes
+  document changed: no
+  caret after: paragraph "only"
+  markdown:
+    only
+
+[case 6: heading-down]
+  key: Alt+ArrowDown
+  cursor before: Title
+  handled: yes
+  document changed: yes
+  caret after: heading "Title"
+  markdown:
+    body
+    
+    # Title
+    
+    last
+
+[case 7: code-block-up]
+  key: Alt+ArrowUp
+  cursor before: const
+  handled: yes
+  document changed: yes
+  caret after: codeBlock "const a = 1;"
+  markdown:
+    ```js
+    const a = 1;
+    ```
+    
+    intro
+    
+    after
+
+[case 8: blockquote-down]
+  key: Alt+ArrowDown
+  cursor before: quoted
+  handled: yes
+  document changed: yes
+  caret after: paragraph "quoted"
+  markdown:
+    plain
+    
+    > quoted
+    
+
+[case 9: list-item-down]
+  key: Alt+ArrowDown
+  cursor before: a
+  handled: yes
+  document changed: yes
+  caret after: paragraph "a"
+  markdown:
+    - b
+    - a
+    - c
+    
+
+[case 10: list-item-up]
+  key: Alt+ArrowUp
+  cursor before: c
+  handled: yes
+  document changed: yes
+  caret after: paragraph "c"
+  markdown:
+    - a
+    - c
+    - b
+    
+
+[case 11: list-first-item-up-is-noop]
+  key: Alt+ArrowUp
+  cursor before: a
+  handled: yes
+  document changed: no
+  caret after: paragraph "a"
+  markdown:
+    intro
+    
+    - a
+    - b
+    
+
+[case 12: list-last-item-down-is-noop]
+  key: Alt+ArrowDown
+  cursor before: b
+  handled: yes
+  document changed: no
+  caret after: paragraph "b"
+  markdown:
+    - a
+    - b
+    
+    outro
+
+[case 13: ordered-item-down-renumbers]
+  key: Alt+ArrowDown
+  cursor before: a
+  handled: yes
+  document changed: yes
+  caret after: paragraph "a"
+  markdown:
+    1. b
+    2. a
+    3. c
+    
+
+[case 14: nested-item-down]
+  key: Alt+ArrowDown
+  cursor before: x
+  handled: yes
+  document changed: yes
+  caret after: paragraph "x"
+  markdown:
+    - top
+      - y
+      - x
+    - other
+    
+
+[case 15: nested-last-item-down-is-noop]
+  key: Alt+ArrowDown
+  cursor before: y
+  handled: yes
+  document changed: no
+  caret after: paragraph "y"
+  markdown:
+    - top
+      - x
+      - y
+    - other
+    
+
+[case 16: task-item-up]
+  key: Alt+ArrowUp
+  cursor before: two
+  handled: yes
+  document changed: yes
+  caret after: paragraph "two"
+  markdown:
+    - [x] two
+    - [ ] one
+    
+
+[case 17: table-cell-down-moves-table]
+  key: Alt+ArrowDown
+  cursor before: c1
+  handled: yes
+  document changed: yes
+  caret after: paragraph "c1"
+  markdown:
+    after
+    
+    | h1  | h2  |
+    | --- | --- |
+    | c1  | c2  |
+    
+    
+
+[case 18: table-cell-up-moves-table]
+  key: Alt+ArrowUp
+  cursor before: c2
+  handled: yes
+  document changed: yes
+  caret after: paragraph "c2"
+  markdown:
+    | h1  | h2  |
+    | --- | --- |
+    | c1  | c2  |
+    
+    
+    before
+    
+
+[case 19: table-first-block-up-is-noop]
+  key: Alt+ArrowUp
+  cursor before: c1
+  handled: yes
+  document changed: no
+  caret after: paragraph "c1"
+  markdown:
+    | h1  | h2  |
+    | --- | --- |
+    | c1  | c2  |
+    
+    
+    after
+
+[case 20: paragraph-insert-after]
+  key: Mod+Enter
+  cursor before: two
+  handled: yes
+  document changed: yes
+  caret after: paragraph (empty)
+  markdown:
+    one
+    
+    two
+    
+    
+    three
+
+[case 21: paragraph-insert-before]
+  key: Mod+Shift+Enter
+  cursor before: two
+  handled: yes
+  document changed: yes
+  caret after: paragraph (empty)
+  markdown:
+    one
+    
+    
+    two
+    
+    three
+
+[case 22: heading-insert-after-at-document-end]
+  key: Mod+Enter
+  cursor before: Title
+  handled: yes
+  document changed: yes
+  caret after: paragraph (empty)
+  markdown:
+    # Title
+    
+    
+
+[case 23: first-block-insert-before]
+  key: Mod+Shift+Enter
+  cursor before: one
+  handled: yes
+  document changed: yes
+  caret after: paragraph (empty)
+  markdown:
+    
+    
+    
+    one
+    
+    two
+
+[case 24: list-item-insert-after-leaves-the-list]
+  key: Mod+Enter
+  cursor before: a
+  handled: yes
+  document changed: yes
+  caret after: paragraph (empty)
+  markdown:
+    - a
+    - b
+    
+    
+    after
+
+[case 25: list-item-insert-before-leaves-the-list]
+  key: Mod+Shift+Enter
+  cursor before: b
+  handled: yes
+  document changed: yes
+  caret after: paragraph (empty)
+  markdown:
+    intro
+    
+    
+    - a
+    - b
+    
+
+[case 26: table-cell-insert-after-at-document-end]
+  key: Mod+Enter
+  cursor before: c1
+  handled: yes
+  document changed: yes
+  caret after: paragraph (empty)
+  markdown:
+    | h1  | h2  |
+    | --- | --- |
+    | c1  | c2  |
+    
+    
+    
+
+[case 27: blockquote-insert-after]
+  key: Mod+Enter
+  cursor before: quoted
+  handled: yes
+  document changed: yes
+  caret after: paragraph (empty)
+  markdown:
+    > quoted
+    
+    
+    plain
+
+[case 28: code-block-mod-enter-is-exit-code]
+  key: Mod+Enter
+  cursor before: const
+  handled: yes
+  document changed: yes
+  caret after: paragraph (empty)
+  markdown:
+    ```js
+    const a = 1;
+    ```
+    
+    
+
+[case 29: code-block-mod-shift-enter-inserts-before]
+  key: Mod+Shift+Enter
+  cursor before: const
+  handled: yes
+  document changed: yes
+  caret after: paragraph (empty)
+  markdown:
+    
+    
+    
+    ```js
+    const a = 1;
+    ```
+    
+
+[case 30: shift-enter-is-still-hard-break]
+  key: Shift+Enter
+  cursor before: two
+  handled: yes
+  document changed: yes
+  caret after: paragraph "two"
+  markdown:
+    one
+    
+      
+    two
+

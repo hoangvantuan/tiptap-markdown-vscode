@@ -12,7 +12,8 @@
  *   - Code block
  *   - Mermaid diagram
  *   - Five GitHub alert blocks: [!NOTE], [!TIP], [!IMPORTANT], [!WARNING], [!CAUTION]
- *   - Image
+ *   - Image (asks for a path as text)
+ *   - Image from file… (host file dialog, #173)
  *   - Collapsible (<details>/<summary>)
  *   - Quote
  *   - Horizontal rule (per #114 correction: replaces #84 "page break", serializes ---)
@@ -37,6 +38,20 @@ export function setImageSrcProvider(
   provider: ((onPicked: (src: string) => void) => void) | null,
 ): void {
   imageSrcProvider = provider;
+}
+
+/**
+ * How the "Insert image from file" entry reaches the host's file dialog (#173).
+ * `main.ts` wires it to the `pickImage` message; the harness leaves it null,
+ * where the entry only removes the typed `/`, because there is no host to open
+ * a dialog.
+ */
+let imagePickProvider: ((editor: Editor) => void) | null = null;
+
+export function setImagePickProvider(
+  provider: ((editor: Editor) => void) | null,
+): void {
+  imagePickProvider = provider;
 }
 
 export interface SlashCommandItem {
@@ -237,6 +252,19 @@ export const SLASH_COMMAND_ITEMS: SlashCommandItem[] = [
       } else {
         editor.chain().focus().setImage({ src: "" }).run();
       }
+    },
+  },
+  {
+    id: "image-file",
+    title: "Image from file…",
+    description: "Pick an image file and save it next to the document",
+    keywords: ["image", "picture", "photo", "file", "upload", "browse", "pick", "img"],
+    icon: `<svg ${SVG_ATTRS}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`,
+    command: (editor, range) => {
+      // Remove the typed `/` first, so the position recorded for the dialog is
+      // where the image will go, not a position inside the slash query.
+      editor.chain().focus().deleteRange(range).run();
+      imagePickProvider?.(editor);
     },
   },
   {

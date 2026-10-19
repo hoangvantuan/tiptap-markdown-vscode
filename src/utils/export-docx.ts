@@ -3,6 +3,7 @@ import * as path from "path";
 import * as fs from "fs/promises";
 import type { Root } from "mdast";
 import { extractVscodeResourcePath } from "./vscode-resource";
+import { fetchRemoteBytes } from "./remote-fetch";
 
 /**
  * `globalThis.crypto` for Node 18, which is what the declared floor runs.
@@ -375,8 +376,6 @@ type ImageResolver = (
   transformation: { width: number; height: number };
 }>;
 
-const REMOTE_FETCH_TIMEOUT_MS = 30_000;
-const REMOTE_MAX_BYTES = 10 * 1024 * 1024; // 10MB
 // 1x1 transparent PNG — used when an image cannot be resolved so one broken
 // reference does not kill the whole export.
 const PLACEHOLDER_PNG_BASE64 =
@@ -429,27 +428,11 @@ function createNodeImageResolver(
         type = normalizeImageType(path.extname(vscodeLocalPath).slice(1) || "png");
         dataForDocx = buffer;
       } else if (/^https?:\/\//i.test(src)) {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), REMOTE_FETCH_TIMEOUT_MS);
-        try {
-          const res = await fetch(src, { signal: controller.signal });
-          if (!res.ok) throw new Error(`Fetch ${res.status} for ${src}`);
-          const declaredSize = Number(res.headers.get("content-length") ?? "0");
-          if (Number.isFinite(declaredSize) && declaredSize > REMOTE_MAX_BYTES) {
-            throw new Error(`Remote image > ${REMOTE_MAX_BYTES} bytes: ${src}`);
-          }
-          const arr = await res.arrayBuffer();
-          if (arr.byteLength > REMOTE_MAX_BYTES) {
-            throw new Error(`Remote image > ${REMOTE_MAX_BYTES} bytes: ${src}`);
-          }
-          buffer = Buffer.from(arr);
-          const contentType = res.headers.get("content-type") ?? "";
-          const ext = contentType.split("/")[1]?.split(";")[0] ?? "png";
-          type = normalizeImageType(ext);
-          dataForDocx = buffer;
-        } finally {
-          clearTimeout(timer);
-        }
+        const remote = await fetchRemoteBytes(src);
+        buffer = Buffer.from(remote.bytes);
+        const ext = remote.contentType.split("/")[1]?.split(";")[0] ?? "png";
+        type = normalizeImageType(ext);
+        dataForDocx = buffer;
       } else {
         const cleaned = src.replace(/^file:\/\//, "");
         const resolved = path.isAbsolute(cleaned)

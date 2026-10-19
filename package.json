@@ -2,7 +2,7 @@
   "name": "tui-milkdown-vscode",
   "displayName": "Tiptap Markdown Editor",
   "description": "A beautiful WYSIWYG Markdown editor powered by Tiptap. Edit markdown files with rich text experience and theme selection.",
-  "version": "3.4.2",
+  "version": "3.5.0",
   "publisher": "tuanhv",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -92,7 +92,12 @@
         "tuiMarkdown.imageSaveFolder": {
           "type": "string",
           "default": "images",
-          "description": "Folder to save pasted images (relative to document). Use '.' for same folder as document."
+          "description": "Folder to save pasted images (relative to document). Use '.' for same folder as document. Accepts the variables listed under imageFileNameTemplate, e.g. images/${fileName}. Must stay inside the document folder; ${workspaceDir} is not supported."
+        },
+        "tuiMarkdown.imageFileNameTemplate": {
+          "type": "string",
+          "default": "${name}",
+          "markdownDescription": "File name for pasted and dropped images, without the extension (it is appended, or place `${ext}` yourself). Variables: `${fileName}` the document name without its extension; `${name}` the name the image arrived with, without its extension (the file name of a dropped or picked image; `image-<now>-<random>` for a paste); `${date}` today as YYYY-MM-DD; `${now}` milliseconds since the epoch; `${random}` six random base36 characters; `${uuid}` a random UUID; `${ext}` the image's extension, taken from its content, not from its label. The default `${name}` keeps the old naming: a paste is saved as `image-<now>-<random>`, a dropped `photo.png` as `photo.png`. For a timestamped name set e.g. `${fileName}-${date}-${random}`. A name already taken gets `-2`, `-3`... instead of being overwritten."
         },
         "tuiMarkdown.autoRenameImages": {
           "type": "boolean",
@@ -103,6 +108,11 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically delete image files when removed from markdown (moves to trash). Asks for confirmation first when another document still references the image."
+        },
+        "tuiMarkdown.downloadRemoteImagesOnPaste": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "When pasting HTML that contains `https://` images, download them into the image folder and link the local copies. Off by default: the URLs come from the pasted content, and enabling this makes the extension request them. Images that fail to download (login required, too large, not an image) keep their remote URL."
         },
         "tuiMarkdown.autoHideToolbar": {
           "type": "boolean",
@@ -145,10 +155,28 @@
         "displayName": "Tiptap Markdown Editor",
         "selector": [
           {
-            "filenamePattern": "*.md"
+            "filenamePattern": "file:/**/*.md"
           },
           {
-            "filenamePattern": "*.markdown"
+            "filenamePattern": "file:/**/*.markdown"
+          },
+          {
+            "filenamePattern": "vscode-remote:/**/*.md"
+          },
+          {
+            "filenamePattern": "vscode-remote:/**/*.markdown"
+          },
+          {
+            "filenamePattern": "vscode-vfs:/**/*.md"
+          },
+          {
+            "filenamePattern": "vscode-vfs:/**/*.markdown"
+          },
+          {
+            "filenamePattern": "untitled:/**/*.md"
+          },
+          {
+            "filenamePattern": "untitled:/**/*.markdown"
           }
         ],
         "priority": "default"

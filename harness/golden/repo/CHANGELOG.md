@@ -2,6 +2,35 @@
 
 All notable changes to "Tiptap Markdown Editor" (formerly "TUI Markdown Editor") extension.
 
+## \[Unreleased\]
+
+## \[3.5.0\] - 2026-10-19
+
+Heading links across notes, keyboard block moves, image templates and file insert, and a save that keeps the last keystroke.
+
+### Added
+
+- **A link to a heading in another note scrolls there (#171).** `[[Note#Heading]]`, `[[Note#Heading|alias]]` and `[text](other.md#heading)` open the target and scroll it to the heading, with the caret in it. A wiki fragment is the heading's text and a markdown fragment is its slug; both are compared through the one slug rule, so either kind finds the same heading. It works whether the target is not yet open, already open in another tab, or opens in the text editor. Only a link that names a fragment scrolls; nothing else remembers or restores a position.
+- **Move blocks and insert paragraphs from the keyboard (#178).** `Alt+↑` / `Alt+↓` move the current block one place, or the current list item within its list; in a table the whole table moves. `Ctrl/Cmd+Enter` and `Ctrl/Cmd+Shift+Enter` insert an empty paragraph after or before the top-level block, which is also the keyboard way out of a table that ends the document. In a code block `Ctrl/Cmd+Enter` keeps leaving the block, and `Shift+Enter` is still a line break.
+- **Image file names and folders from a template (#172).** The new `tuiMarkdown.imageFileNameTemplate` names pasted and dropped images, and `tuiMarkdown.imageSaveFolder` accepts the same variables, so `images/${fileName}` gives each document its own folder. Variables: `${fileName}`, `${name}`, `${date}`, `${now}`, `${random}`, `${uuid}`, `${ext}`. The default `${name}` keeps today's naming: a paste is still `image-<now>-<random>`, a dropped `photo.png` is still `photo.png`. The folder must stay inside the document's folder, so `${workspaceDir}` is not offered.
+- **Insert an image from a file (#173).** The `/` menu's "Image from file…" and a toolbar button open VS Code's file picker; the host reads the file and saves it through the same path as a paste, so under Remote SSH or WSL it browses the machine the document lives on. The image lands where the caret was when the picker opened, even if the text before it changed meanwhile.
+- **Optionally download remote images on paste (#174).** With the new `tuiMarkdown.downloadRemoteImagesOnPaste` on, pasting HTML with `https:` images saves them into the image folder and links the local copies. It is off by default, because the URLs come from whatever was copied: with it off, nothing is requested. Only `https:` is fetched, redirects must stay on `https:`, the response must be an image, and size, time and count are capped. An image that fails keeps its remote URL.
+- **An exported PDF has a bookmark tree (#168).** Chromium builds it from the headings, nested as they are, and nothing is added to the page. A Chrome or Edge that does not know the option exports without bookmarks; the export never fails because of it.
+- **Formulas use VS Code's `markdown.math.macros` (#179).** A macro defined there renders here as in VS Code's own preview, and formulas on screen are redrawn when the setting changes, without touching the document. The table is capped in size, because a workspace settings file can belong to someone else. PDF export does not render math yet (#181).
+
+### Changed
+
+- **Markdown opens in this editor only from `file:`, `vscode-remote:`, `vscode-vfs:` and unsaved documents with a path (#169).** A git diff, a PR review or another extension's virtual markdown document opens in the text editor. This replaces a denylist of git schemes that had to grow with every new tool; the denylist stays as a second layer.
+- **Choose Default Editor for Markdown in this Workspace writes one entry per scheme (#169).** It used to write `*.md`, which VS Code applies to every scheme and ranks above the editor's own selector, so a workspace that ran it opened every diff in WYSIWYG again. Running it replaces the `*.md` entry it wrote before; a `*.md` entry pointing at any other editor is yours and is left alone.
+
+### Fixed
+
+- **Text typed just before `Ctrl/Cmd+S` was missing from the saved file (#167).** The edit was still in the 300 ms debounce when VS Code saved, so the file lacked it and the late edit dirtied the document again. The save keystroke now flushes the pending edit first; the floor check lost 6 of 6 fast saves before and loses none now.
+- **`[[Note#Heading]]` looked for a file called `Note#Heading.md` (#170)** and offered to create it. The fragment is split off before the file is resolved, so it opens `Note.md`, and `[[#Heading]]` scrolls within the current note.
+- **An image whose name was already taken overwrote the existing file (#172).** It gets `-2`, `-3`… instead.
+- **An image whose path contains a space did not display, and lost its `<...>` on save (#173).** The path translation matched only an unbracketed destination, so `![](<images/my photo.png>)` was never shown, and a path written back was left bare, which is not a valid markdown destination.
+- **An image's extension came from its label, not its content (#177).** A WebP the clipboard calls `image/png` was saved as `.png`. The bytes are checked (PNG, JPEG, GIF, WebP, SVG) and the extension follows them.
+
 ## \[3.4.2\] - 2026-10-13
 
 The extension is renamed to Tiptap Markdown Editor.

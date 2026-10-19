@@ -103,6 +103,27 @@ export interface RequestBacklinksMessage {
   type: "requestBacklinks";
 }
 
+/**
+ * Insert an image from a file picker (#173). `requestId` is the webview's
+ * handle on the cursor position it recorded when the dialog was asked for; the
+ * reply (`imagePicked`) carries it back. The file's bytes never travel through
+ * the webview.
+ */
+export interface PickImageMessage {
+  type: "pickImage";
+  requestId: string;
+}
+
+/**
+ * HTML was pasted containing `https:` images (#174). The host downloads them
+ * only when `tuiMarkdown.downloadRemoteImagesOnPaste` is on; with it off the
+ * message is a no-op and no request leaves the machine.
+ */
+export interface DownloadRemoteImagesMessage {
+  type: "downloadRemoteImages";
+  urls: string[];
+}
+
 
 export type WebviewToHostMessage =
   | ReadyMessage
@@ -122,7 +143,9 @@ export type WebviewToHostMessage =
   | WikiLinkSearchMessage
   | OpenWikiLinkMessage
   | ExportMessage
-  | RequestBacklinksMessage;
+  | RequestBacklinksMessage
+  | PickImageMessage
+  | DownloadRemoteImagesMessage;
 
 // ============================================================================
 // Host -> Webview Messages (16 types)
@@ -147,6 +170,12 @@ export interface ConfigMessage {
   autoHideToolbar: boolean;
   listIndentation?: { style: "space" | "tab"; size: number };
   tabSize?: number;
+  /**
+   * VS Code's own `markdown.math.macros`, as a `{"\\RR": "\\mathbb{R}"}`
+   * table. It belongs to the built-in markdown extension, not to us, and it is
+   * what makes a formula render the same here as in VS Code's preview.
+   */
+  mathMacros?: Record<string, string>;
 }
 
 export interface SavedThemeMessage {
@@ -227,6 +256,35 @@ export interface BacklinksMessage {
   links: BacklinkItem[];
 }
 
+/**
+ * Reply to `pickImage`. No `savedPath` means nothing was inserted (dialog
+ * cancelled, file unreadable, write rejected): the webview just drops the
+ * position it was holding for `requestId`.
+ */
+export interface ImagePickedMessage {
+  type: "imagePicked";
+  requestId: string;
+  savedPath?: string;
+  webviewUri?: string;
+  alt?: string;
+}
+
+/** Reply to `downloadRemoteImages`: only the images that were downloaded and saved. */
+export interface RemoteImagesDownloadedMessage {
+  type: "remoteImagesDownloaded";
+  images: Array<{ url: string; savedPath: string; webviewUri: string }>;
+}
+
+/**
+ * Scroll to the heading a followed link named (#171). `fragment` is the raw
+ * text after `#`: heading text from a wiki link or a slug from a markdown link;
+ * the webview compares both through `fragmentMatchesHeading`.
+ */
+export interface ScrollToMessage {
+  type: "scrollTo";
+  fragment: string;
+}
+
 
 export type HostToWebviewMessage =
   | UpdateMessage
@@ -243,4 +301,7 @@ export type HostToWebviewMessage =
   | FileSearchResultsMessage
   | WikiLinkSearchResultsMessage
   | ExportDoneMessage
-  | BacklinksMessage;
+  | BacklinksMessage
+  | ImagePickedMessage
+  | RemoteImagesDownloadedMessage
+  | ScrollToMessage;
