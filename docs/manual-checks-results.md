@@ -2,6 +2,10 @@
 
 Ngày: 2026-09-19  ·  Phiên bản: 2.17.0  ·  VS Code: 1.138.0
 
+**Kết quả lịch sử, giữ nguyên.** Không xác nhận bản hiện tại đã qua kiểm tay.
+Lượt #181 chỉ thêm kiểm tự động; các mục PDF/viewer và kiểm tay hiện tại còn chờ
+được liệt kê trong `docs/manual-checks.md`.
+
 Sinh bởi `scripts/manual-checks.sh`. Tiêu chí và lý do từng mục nằm ở
 `docs/manual-checks.md`.
 

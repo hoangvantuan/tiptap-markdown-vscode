@@ -606,6 +606,34 @@ What it does:
    Backticks are banned inside the `Runtime.evaluate` template literals in
    `run.mjs`; that has cost two syntax errors. Use string concatenation.
 
+7. Opens the dedicated `vscode-floor/pdf-math.md` through the real custom editor.
+   A workspace `markdown.math.macros` update, scoped to that document's URI, must
+   turn an undefined macro into a rendered double-struck R in the live DOM without
+   changing the document version, dirty flag, text or disk bytes. The toolbar then
+   exports a real PDF: `inspect-pdf.py` reads its H1–H3 bookmark hierarchy (including
+   sibling destinations), inline/block fraction and macro glyphs exactly once,
+   and nonempty embedded KaTeX font programs. This checks CSS hiding the parallel
+   MathML output as well as the fonts. Save-dialog UI is stubbed, not export or
+   configuration messages. The original workspace macro setting is restored.
+
+   Negative controls: removing `outline: true` fails the hierarchy assertion;
+   disabling the webview config macro handler leaves the formula undefined and
+   fails the live-update assertion. These are automated file/DOM checks, not
+   visual inspection in a PDF viewer.
+
+PDF readback requires **Python with `pypdf`** (verified with 6.21.1). Set
+`PDF_TEST_PYTHON` to that interpreter; it defaults to `python3`. A missing reader
+fails before VS Code launches, with an instruction to set `PDF_TEST_PYTHON`;
+there is no silent skip. A current Chromium that supports PDF outlines is required
+for the bookmark assertion (the product still gracefully degrades on older browsers).
+On Linux, provide a display or use `xvfb-run`; point `PUPPETEER_EXECUTABLE_PATH` at
+Chromium if auto-discovery cannot find it. For example:
+
+```bash
+PDF_TEST_PYTHON=/path/to/venv/bin/python \
+PUPPETEER_EXECUTABLE_PATH=/path/to/chromium \
+xvfb-run -a -s '-screen 0 1920x1080x24' npm run verify:vscode-floor
+```
 
 ```bash
 npm run verify:vscode-floor                  # the floor from engines.vscode

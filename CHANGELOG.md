@@ -2,7 +2,17 @@
 
 All notable changes to "Tiptap Markdown Editor" (formerly "TUI Markdown Editor") extension.
 
-## [Unreleased]
+## [3.5.1] - 2026-10-20
+
+### Fixed
+
+- **PDF export renders inline and block math instead of literal LaTeX (#181).** Formulas use `markdown.math.macros` and packaged KaTeX fonts, without a CDN. Currency and code examples stay literal; DOCX export is unchanged. Escaped dollars *inside* inline math remain an upstream parser limitation: `$\$5$` falls back to literal `$$5$` in the PDF rather than a rendered formula; neighboring formulas still render.
+
+- **Standalone single-line `$$...$$` formulas use display layout in PDF (#181).** Like multiline formulas, they are centered and use display-sized fractions. Double dollars embedded in prose stay inline, and following prose remains a separate paragraph.
+
+### Changed
+
+- **Floor checks now read exported PDF bookmarks, math and embedded fonts (#168, #181)** and change `markdown.math.macros` through the live host to verify formulas redraw without dirtying the document (#179). PDF readback requires Python with `pypdf`; see `harness/README.md`. These automated checks do not replace visual PDF viewer checks.
 
 ## [3.5.0] - 2026-10-19
 
@@ -304,7 +314,7 @@ Dependency upgrade sweep (#64), verified with the markdown roundtrip harness. Pe
   - A heading placed immediately after an ordered list keeps proper block structure (it is no longer absorbed into the list text)
   - A trailing blank line after a table at end of file survives a save
 - **Frontmatter (js-yaml 5)**: empty or comment-only frontmatter stays valid; YAML error positions are more precise (they point at the line that actually carries the error)
-- **File search**: every @ mention and [[ wiki link ]] suggestion now carries match highlighting (a single ranking path, after the manual diacritic-normalization pass was removed)
+- **File search**: every @ mention and `[[ wiki link ]]` suggestion now carries match highlighting (a single ranking path, after the manual diacritic-normalization pass was removed)
 - **Search**: the match counter reads the authoritative index from plugin storage instead of inferring it from the cursor position
 - **Mermaid lazy-load**: the webview startup bundle drops from 5,023,289 B to 933,347 B; mermaid (8,457,219 B) becomes a separate artifact, fetched only when a document contains a diagram
 - **Performance**: type checking (`tsc --noEmit`) is faster, median ~0.94 s → ~0.27 s
