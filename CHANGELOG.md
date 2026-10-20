@@ -8,6 +8,10 @@ All notable changes to "Tiptap Markdown Editor" (formerly "TUI Markdown Editor")
 
 - **PDF export renders inline and block math instead of literal LaTeX (#181).** Formulas use `markdown.math.macros` and packaged KaTeX fonts, without a CDN. Currency and code examples stay literal; DOCX export is unchanged. Escaped dollars *inside* inline math remain an upstream parser limitation: `$\$5$` falls back to literal `$$5$` in the PDF rather than a rendered formula; neighboring formulas still render.
 
+### Changed
+
+- **Floor checks now read exported PDF bookmarks, math and embedded fonts (#168, #181)** and change `markdown.math.macros` through the live host to verify formulas redraw without dirtying the document (#179). PDF readback requires Python with `pypdf`; see `harness/README.md`. These automated checks do not replace visual PDF viewer checks.
+
 ## [3.5.0] - 2026-10-19
 
 Heading links across notes, keyboard block moves, image templates and file insert, and a save that keeps the last keystroke.

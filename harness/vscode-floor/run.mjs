@@ -26,7 +26,8 @@
  *   npm run verify:vscode-floor -- --keep       # keep the temp dirs
  *
  * Exit code 0 when every check passed, 1 otherwise. Requires a display:
- * VS Code opens a real window (it is closed again automatically).
+ * VS Code opens a real window (it is closed again automatically). PDF readback
+ * requires pypdf in PDF_TEST_PYTHON (default python3); see harness/README.md.
  *
  * Two runs may go at once: every directory this script writes is private to
  * the run (`perRunBase`) and every write into the shared download cache is
@@ -42,7 +43,8 @@
  * that bug, but "two runs may go at once" is only true because the builds
  * happen to produce identical bytes from one checkout.
  */
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
+import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -358,7 +360,8 @@ class DevToolsSession {
       if (message.id && this.pending.has(message.id)) {
         const { resolve, reject } = this.pending.get(message.id);
         this.pending.delete(message.id);
-        message.error ? reject(new Error(JSON.stringify(message.error))) : resolve(message.result);
+        if (message.error) reject(new Error(JSON.stringify(message.error)));
+        else resolve(message.result);
         return;
       }
       if (message.method === "Runtime.executionContextCreated") {
@@ -3122,7 +3125,6 @@ async function findWebviewByHeading(port, sessions, headingText, beat = () => {}
     } catch {
       /* endpoint momentarily busy */
     }
-    let fallback = null;
     for (const session of [...sessions.values()].reverse()) {
       if (session.isClosed) continue;
       for (const context of [...session.contexts].reverse()) {
@@ -3159,8 +3161,8 @@ async function findWebviewByHeading(port, sessions, headingText, beat = () => {}
 }
 
 /**
- * Post-drive wave-11 checks (#171 cross-file fragment scroll, #172/#177
- * `saveImage` folder template + magic-byte format sniffing).
+ * Post-drive checks (#171 cross-file fragment scroll, #172/#177 image naming,
+ * #179 live macros and #168/#181 exported PDF bookmarks/math/fonts).
  *
  * Runs after `driveInteractions` and `runImageDeleteOnSaveCheck` have
  * completed on the host so neither the extra saved image nor opening a second
@@ -3205,7 +3207,71 @@ async function driveWave11Checks(base, debugPort, sessions) {
     }
 
     try {
-      if (cmd.op === "dropWebpImage") {
+      if (cmd.op === "readMathMacro") {
+        const target = await findWebviewByHeading(debugPort, sessions, "PDF Math Chapter", beat);
+        if (!target) throw new Error("could not find pdf-math.md webview");
+        const deadline = Date.now() + 10000;
+        let state;
+        do {
+          beat();
+          state = await target.evaluate(`(() => {
+            const node = Array.from(document.querySelectorAll('.inline-math'))
+              .find((el) => el.getAttribute('data-latex') === ${JSON.stringify("\\RR")});
+            const math = node?.querySelector('.katex-mathml');
+            const html = node?.querySelector('.katex-html');
+            const red = math?.querySelector('[mathcolor="#cc0000"]');
+            const expanded = math?.querySelector('mi[mathvariant="double-struck"]');
+            return {
+              undefinedMacro: !!red && red.textContent === ${JSON.stringify("\\RR")},
+              expanded: !red && expanded?.textContent === 'R' && html?.textContent === 'R',
+              visibleText: html?.textContent ?? null,
+              mathml: math?.innerHTML ?? null,
+            };
+          })()`);
+          if (cmd.defined ? state?.expanded : state?.undefinedMacro) break;
+          await sleep(200);
+        } while (Date.now() < deadline);
+        writeDone(i, { ok: cmd.defined ? state?.expanded === true : state?.undefinedMacro === true, ...state });
+      } else if (cmd.op === "exportMathPdf") {
+        const target = await findWebviewByHeading(debugPort, sessions, "PDF Math Chapter", beat);
+        if (!target) throw new Error("could not find pdf-math.md webview");
+        const clicked = await target.evaluate(`(() => {
+          document.getElementById('btn-appearance')?.click();
+          const select = document.getElementById('export-format');
+          const go = document.getElementById('btn-export-go');
+          if (!select || !go) return false;
+          select.value = 'pdf';
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          go.click();
+          return true;
+        })()`);
+        assert.ok(clicked, "PDF export controls must exist");
+        const pdfPath = path.join(base, "ws", "floor-export.pdf");
+        const deadline = Date.now() + 30000;
+        while (!fs.existsSync(pdfPath) && Date.now() < deadline) {
+          beat();
+          await sleep(250);
+        }
+        assert.ok(fs.existsSync(pdfPath), "PDF export must write a new file within 30s");
+        assert.equal(fs.readFileSync(pdfPath).subarray(0, 5).toString(), "%PDF-");
+        const pdf = JSON.parse(execFileSync(process.env.PDF_TEST_PYTHON || "python3",
+          [path.join(HERE, "inspect-pdf.py"), pdfPath], { encoding: "utf8", timeout: 15000 }));
+        assert.deepEqual(pdf.outline, [
+          { depth: 0, title: "PDF Math Chapter", page: 0 },
+          { depth: 1, title: "Section Two", page: 0 },
+          { depth: 2, title: "Detail Three", page: 0 },
+          { depth: 1, title: "Section Four", page: 0 },
+        ], "PDF bookmarks must preserve H1-H3 hierarchy and sibling destinations");
+        assert.doesNotMatch(pdf.text, /\$|\\frac|\\RR/, "math must not remain literal source");
+        for (const glyph of ["a", "b", "c", "d", "R"]) {
+          assert.equal((pdf.text.match(new RegExp("\\b" + glyph + "\\b", "g")) || []).length,
+            1, "each fraction/macro glyph must print once (CSS must hide duplicate MathML): " + pdf.text);
+        }
+        for (const font of ["KaTeX_Math", "KaTeX_AMS"]) {
+          assert.ok(pdf.embedded.some((name) => name.includes(font)), "missing embedded font program: " + font);
+        }
+        writeDone(i, { ok: true, ...pdf });
+      } else if (cmd.op === "dropWebpImage") {
         const target = await findWebviewByHeading(debugPort, sessions, "Heading One", beat);
         if (!target) {
           writeDone(i, { ok: false, error: "could not find sample.md webview" });
@@ -3538,6 +3604,12 @@ async function main() {
     return 1;
   }
 
+  // Fail before launching a window when the independent PDF reader is missing.
+  try {
+    execFileSync(process.env.PDF_TEST_PYTHON || "python3", ["-c", "import pypdf"], { stdio: "pipe" });
+  } catch (err) {
+    throw new Error("PDF floor checks require Python with pypdf; set PDF_TEST_PYTHON to that interpreter. " + err.message);
+  }
   const executable = await ensureVsCode(version);
   const debugPort = await freePort();
   // No rmSync here: mkdtemp hands back a directory that did not exist a
@@ -3552,6 +3624,7 @@ async function main() {
   fs.mkdirSync(extensions, { recursive: true });
   const sample = path.join(workspace, "sample.md");
   fs.copyFileSync(SAMPLE, sample);
+  fs.copyFileSync(path.join(HERE, "pdf-math.md"), path.join(workspace, "pdf-math.md"));
   // sample.md references media/icon.png twice, once with a width and once
   // without, so the image checks have a file that actually resolves through
   // the webview's localResourceRoots rather than a broken <img>.

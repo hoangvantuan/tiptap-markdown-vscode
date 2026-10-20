@@ -30,6 +30,13 @@ Lấy đó làm lý do để làm nốt phần dưới.
 
 ## Trạng thái
 
+**Mốc lịch sử và lượt hiện tại:** kết quả trong `docs/manual-checks-results.md`
+là lượt **2.17.0 / VS Code 1.138.0 ngày 2026-09-19**, không phải kết quả kiểm tay
+cho bản hiện tại. Các số đo cũ bên dưới giữ nguyên bối cảnh đó. Lượt #181 chỉ bổ sung
+kiểm tự động PDF và macro; chưa chạy kiểm tay mới, không có ô nào được đánh dấu đạt.
+Phần D2 liệt kê việc kiểm PDF hiện tại còn chờ; các mục tay khác vẫn cần kiểm lại
+trên phiên bản được ghi trong lượt mới.
+
 | Mục | Tiêu chí | Ai kiểm |
 | --- | --- | --- |
 | A1 | Menu bảng: mở, roving focus, Escape, ba mục căn lề | **floor** `table context menu is operable from the keyboard` |
@@ -298,16 +305,26 @@ phải lỗi mới.
 - [ ] Bấm Export hai lần liên tiếp thật nhanh: lần hai bị chặn bởi khoá bận, không sinh
       ra hai tiến trình.
 
-### D2. Export PDF (#88): ĐÃ TỰ ĐỘNG, TRỪ HỘP THOẠI
+### D2. Export PDF (#88, #168, #181): TỰ ĐỘNG ĐỌC FILE, CÒN KIỂM VIEWER
 
-Floor check `export produces a real PDF file`: `bytes=116569 magic=25504446`. Nội dung
+Số đo lịch sử: floor check `export produces a real PDF file`: `bytes=116569 magic=25504446`. Nội dung
 đã soi bằng `pdftotext`: heading, chữ đậm, link kèm URL, bảng đủ cột và giá trị, task,
 code, alert, ảnh. Chromium tự dò được, không cần đặt `tuiMarkdown.chromiumPath`.
+
+Kiểm tự động hiện tại đọc PDF thật bằng `pypdf`: cây bookmark H1–H3 đúng cấp,
+phân số inline/block và macro có glyph đúng một lần, có font KaTeX nhúng.
+Floor cũng đổi `markdown.math.macros` qua host và kiểm DOM redraw mà tài liệu
+không bẩn, không đổi byte trên đĩa. Đây không phải kiểm bằng mắt trong PDF viewer.
+Cách chạy và điều kiện Python/Chromium: `harness/README.md`.
 
 Cần một Chromium thật. `tuiMarkdown.chromiumPath` để trống thì tự dò
 Chrome/Edge/Chromium/Brave.
 
+**Chờ kiểm tay trên bản hiện tại (chưa chạy):**
+
 - [ ] Chọn `PDF`, bấm `Export`, lưu.
+- [ ] Mở cây bookmark trong PDF viewer, kiểm H1–H3 lồng đúng cấp và bấm để nhảy đúng heading.
+- [ ] Nhìn công thức inline/block và macro cấu hình: font, phân số, căn dòng không vỡ; không còn LaTeX thô. Escaped dollar bên trong inline math vẫn là giới hạn đã ghi ở CHANGELOG (#181).
 - [ ] Mở file: nội dung đúng, khổ giấy đúng `tuiMarkdown.exportPageSize` (mặc định A4).
 - [ ] HTML thô ở đây thì ĐƯỢC render (khác DOCX, vì đường PDF đi qua `remark-rehype` với
       `allowDangerousHtml`).
@@ -438,7 +455,7 @@ Floor check khẳng định menu có hiện ra và có đúng số mục. Nó kh
 
 ## Bảng kết quả
 
-Ngày kiểm: `__________`  ·  Phiên bản: `2.17.0`  ·  VS Code: `__________`
+Ngày kiểm: `__________`  ·  Phiên bản đang kiểm: `__________`  ·  VS Code: `__________`
 
 Chỉ liệt kê phần CÒN LẠI. Những mục floor đã nhận thì `npm run verify:vscode-floor`
 trả lời, đừng chép tay lại.
@@ -453,6 +470,7 @@ trả lời, đừng chép tay lại.
 | C2 | Dán ảnh (#88) | | |
 | C3 | Đổi tên ảnh (#88) | | |
 | C4b | Ảnh xoá có vào Thùng rác không (#88) | | |
+| D2 | PDF: hộp thoại, viewer/bookmark, bố cục công thức và khổ giấy (#168, #181) | Chưa kiểm | |
 | E1b | Chèn bằng Enter, và lời mời tạo file (#123) | | |
 | F1 | `editor.tabSize` đổi thụt lề (#102) | | |
 | X1b | Git Graph diff cụ thể (#48) | | |
