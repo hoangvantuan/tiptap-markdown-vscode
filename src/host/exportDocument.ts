@@ -20,6 +20,7 @@ import * as vscode from "vscode";
 import type { ExportMessage } from "../shared/messages";
 import type { TypedWebview } from "./typedWebview";
 import { parseContent } from "../utils/frontmatter-parser";
+import { getMathMacros } from "./config";
 
 export function handleExport(
   msg: ExportMessage,
@@ -42,6 +43,7 @@ export function handleExport(
     const stripped = rawText.replace(/^﻿/, "");
     const parsedFm = parseContent(stripped);
     const normalized = parsedFm.body;
+    const mathMacros = exportFormat === "pdf" ? getMathMacros(document) : undefined;
 
     try {
       const markdownAstPath = require("path").join(__dirname, "markdown-ast.js");
@@ -53,7 +55,7 @@ export function handleExport(
         stripWikiLinks,
       } = require(markdownAstPath);
 
-      const mdast = await parseMarkdownToMdast(normalized);
+      const mdast = await parseMarkdownToMdast(normalized, { math: exportFormat === "pdf" });
 
       // Drop the frontmatter node so it is not rendered as content.
       if (
@@ -89,7 +91,7 @@ export function handleExport(
       if (exportFormat === "pdf") {
         const exportPdfPath = require("path").join(__dirname, "export-pdf.js");
         const { exportToPdf: doExport } = require(exportPdfPath);
-        await doExport(mdast, document.uri, fontFamily, pageSize);
+        await doExport(mdast, document.uri, fontFamily, pageSize, mathMacros);
       } else {
         const exportDocxPath = require("path").join(__dirname, "export-docx.js");
         const { exportToDocx: doExport } = require(exportDocxPath);

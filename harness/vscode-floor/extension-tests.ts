@@ -898,10 +898,10 @@ const PNG_1X1 = Buffer.from(
 );
 
 /**
- * Wave-11 post-drive floor checks (#172/#177 `saveImage` folder template +
- * magic-byte format sniffing, and #171 cross-file `#fragment` scroll across
- * both the unopened-target `pendingFragments` path and the already-open
- * `findSessionByPath` path).
+ * Post-drive floor checks: image naming/format, cross-file fragments, image
+ * insertion/downloads, live macro settings and real PDF bookmarks/math/fonts.
+ * Macro settings use the real workspace API; the driver reads DOM/PDF output,
+ * while this host checks document cleanliness and restores workspace settings.
  *
  * Coordinated with `driveWave11Checks` in `run.mjs` over `phase-w11-cmd-<i>` /
  * `phase-w11-done-<i>` markers and `phase-w11-end`.
@@ -1428,6 +1428,47 @@ async function runWave11FloorChecks(base: string, uri: vscode.Uri): Promise<void
           if (n.startsWith("image-")) fs.rmSync(path.join(imagesDir, n), { force: true });
         }
       }
+    }
+
+    // Dedicated source keeps preceding surface edits out of the PDF contract.
+    // The toolbar and real host export run unchanged; only save-dialog UI is stubbed.
+    const pdfUri = vscode.Uri.file(path.join(docFolder, "pdf-math.md"));
+    const mathConfig = vscode.workspace.getConfiguration("markdown", pdfUri);
+    const originalMacros = mathConfig.inspect<Record<string, string>>("math.macros")?.workspaceValue;
+    const sourceBytes = fs.readFileSync(pdfUri.fsPath);
+    const PDF_NAME = "PDF export preserves H1-H3 bookmarks and renders math/macros with embedded fonts (#168, #181)";
+    const MACRO_NAME = "changing markdown.math.macros redraws a live formula without dirtying the document (#179)";
+    try {
+      await mathConfig.update("math.macros", {}, vscode.ConfigurationTarget.Workspace);
+      await vscode.commands.executeCommand("vscode.openWith", pdfUri, VIEW_TYPE);
+      await waitForCustomTab(20000);
+      try {
+        const before = await sendStep({ op: "readMathMacro", defined: false });
+        const doc = await vscode.workspace.openTextDocument(pdfUri);
+        const version = doc.version;
+        const initiallyClean = !doc.isDirty && doc.getText() === sourceBytes.toString("utf8");
+        await mathConfig.update("math.macros", { "\\RR": "\\mathbb{R}" }, vscode.ConfigurationTarget.Workspace);
+        const after = await sendStep({ op: "readMathMacro", defined: true });
+        // Wait past the edit debounce; an unwanted host write must not hide behind it.
+        await sleep(1000);
+        const unchanged = initiallyClean && !doc.isDirty && doc.version === version &&
+          doc.getText() === sourceBytes.toString("utf8") && fs.readFileSync(pdfUri.fsPath).equals(sourceBytes);
+        record(MACRO_NAME, before.ok === true && after.ok === true && unchanged,
+          JSON.stringify({ before, after, unchanged, dirty: doc.isDirty, versionBefore: version, versionAfter: doc.version }));
+      } catch (err) {
+        record(MACRO_NAME, false, String(err));
+      }
+      fs.rmSync(path.join(docFolder, "floor-export.pdf"), { force: true });
+      const result = await sendStep({ op: "exportMathPdf" });
+      const doc = await vscode.workspace.openTextDocument(pdfUri);
+      const unchanged = !doc.isDirty && doc.getText() === sourceBytes.toString("utf8") &&
+        fs.readFileSync(pdfUri.fsPath).equals(sourceBytes);
+      record(PDF_NAME, result.ok === true && unchanged,
+        JSON.stringify({ ...result, unchanged }));
+    } catch (err) {
+      record(PDF_NAME, false, String(err));
+    } finally {
+      await mathConfig.update("math.macros", originalMacros, vscode.ConfigurationTarget.Workspace);
     }
   } finally {
     try {

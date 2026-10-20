@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs/promises";
 import type { Root } from "mdast";
+import type { Root as HastRoot } from "hast";
 import { findChromiumExecutable, clearChromiumCache } from "./chromium-discovery";
 import { printPdf } from "./pdf-print";
 import { extractVscodeResourcePath } from "./vscode-resource";
@@ -19,6 +20,10 @@ export { clearChromiumCache };
  * Bundled as `out/export-pdf.js` (lazy-loaded on demand). `puppeteer-core`
  * is bundled INTO it by esbuild (not external): `.vscodeignore` drops
  * `node_modules/**`, so an external require would not ship.
+ *
+ * PDF-only remark math nodes render through rehype-katex with the host's
+ * sanitized macro table. CSS/fonts reuse the packaged KaTeX webview assets,
+ * inlined as data URLs so printing requires neither file access nor a CDN.
  *
  * Security invariants (user markdown is untrusted input):
  * - JavaScript stays disabled on the page (`setJavaScriptEnabled(false)`).
@@ -48,6 +53,7 @@ export async function exportToPdf(
   documentUri: vscode.Uri,
   fontFamily?: string,
   pageSize?: PageSize,
+  mathMacros: Record<string, string> = {},
 ): Promise<void> {
   const format: PageSize = pageSize === "Letter" ? "Letter" : "A4";
   const docName = path.basename(documentUri.fsPath, path.extname(documentUri.fsPath));
@@ -88,9 +94,9 @@ export async function exportToPdf(
       },
       async () => {
         const baseDir = path.dirname(documentUri.fsPath);
-        const bodyHtml = await mdastToHtml(mdast, baseDir);
+        const bodyHtml = await mdastToHtml(mdast, baseDir, mathMacros);
         const sanitizedBody = stripDangerousHtmlTags(bodyHtml);
-        const fullHtml = buildHtmlDocument(sanitizedBody, docName, fontFamily, format);
+        const fullHtml = await buildHtmlDocument(sanitizedBody, docName, fontFamily, format);
 
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const puppeteer = require("puppeteer-core");
@@ -152,7 +158,7 @@ export async function exportToPdf(
 function puppeteerLaunchArgs(): string[] {
   const args: string[] = [];
   const isLinux = process.platform === "linux";
-  const getuid = (process as unknown as { getuid?: () => number }).getuid;
+  const getuid = process.getuid;
   const isRoot = typeof getuid === "function" && getuid() === 0;
   if (isLinux && isRoot) {
     args.push("--no-sandbox", "--disable-setuid-sandbox");
@@ -185,21 +191,52 @@ function stripDangerousHtmlTags(html: string): string {
     .replace(/(href|src)\s*=\s*(?:"\s*data:text\/html[^"]*"|'\s*data:text\/html[^']*')/gi, '$1=""');
 }
 
-async function mdastToHtml(mdast: Root, baseDir: string): Promise<string> {
+async function mdastToHtml(
+  mdast: Root,
+  baseDir: string,
+  mathMacros: Record<string, string>,
+): Promise<string> {
   const [
     { unified },
     { default: remarkRehype },
     { default: rehypeHighlight },
     { default: rehypeStringify },
+    { default: rehypeKatex },
+    { visit, SKIP },
   ] = await Promise.all([
     import("unified"),
     import("remark-rehype"),
     import("rehype-highlight"),
     import("rehype-stringify"),
+    import("rehype-katex"),
+    import("unist-util-visit"),
   ]);
 
   const hast = await unified()
     .use(remarkRehype, { allowDangerousHtml: true })
+    .use(function renderMathNodes() {
+      return (tree: HastRoot, file) => {
+        visit(tree, "element", (node, index, parent) => {
+          const code = node.tagName === "pre" ? node.children[0] : node;
+          if (!parent || index === undefined || code?.type !== "element") return;
+          const classes = code.properties.className;
+          // Only remark-math's nodes: rehype-katex also renders ```math fences
+          // by default, but code examples must remain literal in this exporter.
+          if (!Array.isArray(classes) ||
+              !classes.some((name) => name === "math-inline" || name === "math-display")) return;
+          const fragment: HastRoot = { type: "root", children: [node] };
+          rehypeKatex({
+            trust: false,
+            maxExpand: 1000,
+            // A fresh table per formula AND per error retry: KaTeX's \\gdef
+            // must not mutate the next formula or the host's sanitized table.
+            get macros() { return { ...mathMacros }; },
+          })(fragment, file);
+          parent.children.splice(index, 1, ...fragment.children);
+          return SKIP;
+        });
+      };
+    })
     .use(rehypeHighlight, { detect: false, ignoreMissing: true })
     .run(mdast);
 
@@ -288,12 +325,12 @@ function safeDecode(s: string): string {
   }
 }
 
-function buildHtmlDocument(
+async function buildHtmlDocument(
   bodyHtml: string,
   title: string,
   fontFamily?: string,
   pageSize?: PageSize,
-): string {
+): Promise<string> {
   const safeTitle = escapeHtml(title);
   const userFont = cssFontFamilyToken(fontFamily);
   // Page size is set via puppeteer `page.pdf({ format })` with
@@ -310,6 +347,7 @@ ${pageCss()}
 ${baseCss(userFont)}
 ${printEnhancementsCss()}
 ${codeHighlightCss()}
+${await katexCss()}
 </style>
 </head>
 <body>
@@ -318,6 +356,19 @@ ${bodyHtml}
 </article>
 </body>
 </html>`;
+}
+
+/** Reuse packaged webview assets; about:blank cannot resolve relative font URLs. */
+async function katexCss(): Promise<string> {
+  const assetDir = path.join(__dirname, "webview", "katex");
+  let css = await fs.readFile(path.join(assetDir, "katex.min.css"), "utf8");
+  const urls = [...new Set(css.match(/fonts\/[\w.-]+\.(?:woff2?|ttf)/g) ?? [])];
+  for (const url of urls) {
+    const bytes = await fs.readFile(path.join(assetDir, url));
+    const format = path.extname(url).slice(1);
+    css = css.split(url).join(`data:font/${format};base64,${bytes.toString("base64")}`);
+  }
+  return css;
 }
 
 /**
