@@ -8,6 +8,8 @@ All notable changes to "Tiptap Markdown Editor" (formerly "TUI Markdown Editor")
 
 - **PDF export renders inline and block math instead of literal LaTeX (#181).** Formulas use `markdown.math.macros` and packaged KaTeX fonts, without a CDN. Currency and code examples stay literal; DOCX export is unchanged. Escaped dollars *inside* inline math remain an upstream parser limitation: `$\$5$` falls back to literal `$$5$` in the PDF rather than a rendered formula; neighboring formulas still render.
 
+- **Standalone single-line `$$...$$` formulas use display layout in PDF (#181).** Like multiline formulas, they are centered and use display-sized fractions. Double dollars embedded in prose stay inline, and following prose remains a separate paragraph.
+
 ### Changed
 
 - **Floor checks now read exported PDF bookmarks, math and embedded fonts (#168, #181)** and change `markdown.math.macros` through the live host to verify formulas redraw without dirtying the document (#179). PDF readback requires Python with `pypdf`; see `harness/README.md`. These automated checks do not replace visual PDF viewer checks.

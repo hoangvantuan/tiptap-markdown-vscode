@@ -79,8 +79,15 @@ async function exportPdf(markdown, settings = {}) {
 import json, sys
 from pypdf import PdfReader
 reader = PdfReader(sys.argv[1])
-fonts, embedded, links = [], [], []
+fonts, embedded, links, text_runs = [], [], [], []
+def record_text(text, cm, tm, font, size):
+    if text.strip():
+        # Text origin in page coordinates, not the text object's local matrix.
+        text_runs.append({'text': text.strip(),
+                          'x': tm[4] * cm[0] + tm[5] * cm[2] + cm[4],
+                          'y': tm[4] * cm[1] + tm[5] * cm[3] + cm[5]})
 for page in reader.pages:
+    page.extract_text(visitor_text=record_text)
     for ref in page['/Resources']['/Font'].get_object().values():
         font = ref.get_object()
         name = str(font.get('/BaseFont', ''))
@@ -93,7 +100,7 @@ for page in reader.pages:
         action = ref.get_object().get('/A', {})
         if '/URI' in action:
             links.append(str(action['/URI']))
-print(json.dumps({'text': '\\n'.join(page.extract_text() for page in reader.pages), 'fonts': fonts, 'embedded': embedded, 'links': links}))
+print(json.dumps({'text': '\\n'.join(page.extract_text() for page in reader.pages), 'fonts': fonts, 'embedded': embedded, 'links': links, 'textRuns': text_runs}))
 `, output], { encoding: 'utf8' }));
 }
 
@@ -193,4 +200,76 @@ Even $z\\$ after.
   assert.match(pdf.text, /\by\b/, pdf.text);
   assert.match(pdf.text, /\bz\b/, pdf.text);
   assert.ok(pdf.embedded.some((font) => font.includes('KaTeX_Math')), JSON.stringify(pdf));
+});
+
+test('standalone single-line double-dollar fractions use display geometry, not inline geometry', async (t) => {
+  const pdf = await exportPdf(String.raw`Before paragraph.
+
+$$\frac{a}{b}$$
+After paragraph.
+
+$$
+\frac{c}{d}
+$$
+
+Inline $\frac{e}{f}$ stays here.
+
+Embedded $$\frac{g}{h}$$ stays here.
+`);
+  const glyph = (letter) => {
+    const runs = pdf.textRuns.filter((run) => run.text === letter);
+    assert.equal(runs.length, 1, JSON.stringify(pdf.textRuns));
+    return runs[0];
+  };
+  const gap = (top, bottom) => Math.abs(glyph(top).y - glyph(bottom).y);
+  const single = gap('a', 'b');
+  const multiline = gap('c', 'd');
+  const inline = gap('e', 'f');
+  const embedded = gap('g', 'h');
+  t.diagnostic(JSON.stringify({ single, multiline, inline, embedded }));
+  // Chromium rounds baseline positions to layout pixels (0.75pt each).
+  assert.ok(Math.abs(single - multiline) < 1.5, 'both block forms must have the same numerator/denominator spacing');
+  assert.ok(single > inline * 1.3, 'display fractions must have larger spacing than inline fractions');
+  // Different letters have different KaTeX metrics; the display/inline gap
+  // differs by about 9pt, well outside this 2pt glyph-metric tolerance.
+  assert.ok(Math.abs(inline - embedded) < 2, 'double dollars within prose must not be promoted to display');
+  assert.ok(Math.abs(glyph('a').x - glyph('c').x) < 2, 'both block forms must be centered');
+  for (const prose of ['Before paragraph.', 'After paragraph.', 'Inline', 'Embedded', 'stays here.']) {
+    assert.ok(pdf.text.includes(prose), pdf.text);
+  }
+});
+
+test('display promotion follows paragraph boundaries, indentation and the end-of-line closer rule', async (t) => {
+  const pdf = await exportPdf(String.raw`Before in the same paragraph.
+$$\frac{a}{b}$$
+After in the same paragraph.
+
+$$\frac{c}{d}$$${'  '}
+
+   $$\frac{e}{f}$$
+$$\frac{g}{h}$$
+Following paragraph.
+
+Inline $\frac{i}{j}$.
+`);
+  const gap = (numerator, denominator) => {
+    const top = pdf.textRuns.filter((run) => run.text === numerator);
+    const bottom = pdf.textRuns.filter((run) => run.text === denominator);
+    assert.equal(top.length, 1, JSON.stringify(pdf.textRuns));
+    assert.equal(bottom.length, 1, JSON.stringify(pdf.textRuns));
+    return Math.abs(top[0].y - bottom[0].y);
+  };
+  const withinParagraph = gap('a', 'b');
+  const trailingSpaces = gap('c', 'd');
+  const indented = gap('e', 'f');
+  const consecutive = gap('g', 'h');
+  const inline = gap('i', 'j');
+  t.diagnostic(JSON.stringify({ withinParagraph, trailingSpaces, indented, consecutive, inline }));
+  assert.ok(Math.abs(withinParagraph - inline) < 2, 'a line after prose is not a new block');
+  assert.ok(Math.abs(trailingSpaces - inline) < 2, 'characters after the closer prevent standalone block recognition');
+  assert.ok(indented > inline * 1.3, 'three spaces of indentation still allow a block');
+  assert.ok(consecutive > inline * 1.3, 'the next standalone line starts another block');
+  for (const prose of ['Before in the same paragraph.', 'After in the same paragraph.', 'Following paragraph.']) {
+    assert.ok(pdf.text.includes(prose), pdf.text);
+  }
 });
