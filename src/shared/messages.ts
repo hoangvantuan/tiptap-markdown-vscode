@@ -28,6 +28,13 @@ export interface ThemeChangeMessage {
   theme: string;
 }
 
+/** A layout control in the Appearance popover writing back to `tuiMarkdown.*` (global scope). */
+export interface UpdateSettingMessage {
+  type: "updateSetting";
+  key: string;
+  value: boolean | number | null;
+}
+
 export interface FontChangeMessage {
   type: "fontChange";
   font: string;
@@ -131,6 +138,7 @@ export type WebviewToHostMessage =
   | ViewSourceMessage
   | ThemeChangeMessage
   | FontChangeMessage
+  | UpdateSettingMessage
   | ZoomChangeMessage
   | SaveImageMessage
   | ShowWarningMessage
@@ -168,6 +176,14 @@ export interface ConfigMessage {
   headingSizes: Record<string, number>;
   highlightCurrentLine: boolean;
   autoHideToolbar: boolean;
+  showTocSidebar: boolean;
+  showBacklinksPanel: boolean;
+  focusModeByDefault: boolean;
+  metadataScrollsWithContent: boolean;
+  /** Page spacing in px; null keeps the stylesheet default. */
+  pageMargin: number | null;
+  pagePaddingX: number | null;
+  pagePaddingTop: number | null;
   listIndentation?: { style: "space" | "tab"; size: number };
   tabSize?: number;
   /**

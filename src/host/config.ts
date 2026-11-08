@@ -180,6 +180,17 @@ function getListIndentation(document: vscode.TextDocument): {
   };
 }
 
+function getBool(key: string, fallback: boolean): boolean {
+  const v = vscode.workspace.getConfiguration("tuiMarkdown").get<boolean>(key, fallback);
+  return typeof v === "boolean" ? v : fallback;
+}
+
+/** A px value, or null for "keep the stylesheet default". */
+function getPx(key: string): number | null {
+  const v = vscode.workspace.getConfiguration("tuiMarkdown").get<number | null>(key, null);
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
+}
+
 /** The `config` message, built in the order the settings were read before. */
 export function buildConfigMessage(document: vscode.TextDocument): ConfigMessage {
   const { indentation, tabSize } = getListIndentation(document);
@@ -189,6 +200,13 @@ export function buildConfigMessage(document: vscode.TextDocument): ConfigMessage
     headingSizes: getHeadingSizes(),
     highlightCurrentLine: getHighlightCurrentLine(),
     autoHideToolbar: getAutoHideToolbar(),
+    showTocSidebar: getBool("showTocSidebar", true),
+    showBacklinksPanel: getBool("showBacklinksPanel", true),
+    focusModeByDefault: getBool("focusModeByDefault", false),
+    metadataScrollsWithContent: getBool("metadataScrollsWithContent", false),
+    pageMargin: getPx("pageMargin"),
+    pagePaddingX: getPx("pagePaddingX"),
+    pagePaddingTop: getPx("pagePaddingTop"),
     listIndentation: indentation,
     tabSize,
     mathMacros: getMathMacros(document),
@@ -211,6 +229,13 @@ export function handleConfigurationChange(
     e.affectsConfiguration("tuiMarkdown.headingSizes") ||
     e.affectsConfiguration("tuiMarkdown.highlightCurrentLine") ||
     e.affectsConfiguration("tuiMarkdown.autoHideToolbar") ||
+    e.affectsConfiguration("tuiMarkdown.showTocSidebar") ||
+    e.affectsConfiguration("tuiMarkdown.showBacklinksPanel") ||
+    e.affectsConfiguration("tuiMarkdown.focusModeByDefault") ||
+    e.affectsConfiguration("tuiMarkdown.metadataScrollsWithContent") ||
+    e.affectsConfiguration("tuiMarkdown.pageMargin") ||
+    e.affectsConfiguration("tuiMarkdown.pagePaddingX") ||
+    e.affectsConfiguration("tuiMarkdown.pagePaddingTop") ||
     e.affectsConfiguration("tuiMarkdown.listIndent", document.uri) ||
     e.affectsConfiguration("markdown.math.macros") ||
     e.affectsConfiguration("editor.tabSize", {

@@ -115,6 +115,20 @@ const handlers: HandlerTable = {
     }
   },
 
+  updateSetting: async (msg) => {
+    // Whitelist: the webview may only touch the layout keys the popover shows.
+    const bools = ["showTocSidebar", "showBacklinksPanel", "focusModeByDefault", "metadataScrollsWithContent"];
+    const pxs = ["pageMargin", "pagePaddingX", "pagePaddingTop"];
+    const { key, value } = msg;
+    const ok =
+      (bools.includes(key) && typeof value === "boolean") ||
+      (pxs.includes(key) && (value === null || (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 300)));
+    if (!ok) return;
+    await vscode.workspace
+      .getConfiguration("tuiMarkdown")
+      .update(key, value === null ? undefined : value, vscode.ConfigurationTarget.Global);
+  },
+
   fontChange: async (msg, ctx) => {
     const font = msg.font;
     if (typeof font === "string") {

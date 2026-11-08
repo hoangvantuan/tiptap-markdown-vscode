@@ -21,6 +21,7 @@ import { publishTiptapGlobals } from "./tiptap-globals";
 import type {
   WebviewToHostMessage,
   HostToWebviewMessage,
+  ConfigMessage,
 } from "../shared/messages";
 import { sameResource } from "../utils/vscode-resource";
 import { Placeholder } from "@tiptap/extension-placeholder";
@@ -74,7 +75,7 @@ import { EmojiSuggestion } from "./emoji-plugin";
 import { setupDragHandle } from "./drag-handle-plugin";
 import { ContentSync } from "./content-sync";
 import { setupBacklinksPanel, updateBacklinks, refreshBacklinksIfVisible } from "./backlinks-panel";
-import { setupFocusMode, handleFocusModeTransaction } from "./focus-mode";
+import { setupFocusMode, handleFocusModeTransaction, setFocusModeDefault } from "./focus-mode";
 import { insertDetails } from "./details-extension";
 import { buildMarkdownExtensions } from "./extension-factory";
 import { setMathMacros } from "./math-extension";
@@ -167,7 +168,8 @@ type ThemeName =
   | "paper"
   | "midnight"
   | "notion"
-  | "notion-dark";
+  | "notion-dark"
+  | "vscode";
 
 const THEMES: ThemeName[] = [
   "frame",
@@ -184,6 +186,7 @@ const THEMES: ThemeName[] = [
   "midnight",
   "notion",
   "notion-dark",
+  "vscode",
 ];
 const DEBOUNCE_MS = 300;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -691,12 +694,21 @@ const DARK_THEMES: ReadonlySet<ThemeName> = new Set([
   "midnight", "notion-dark",
 ]);
 
+/** "vscode" has no fixed polarity: it follows the class the webview host puts on body. */
+function isDarkTheme(themeName: ThemeName): boolean {
+  if (themeName === "vscode") {
+    const cl = document.body.classList;
+    return cl.contains("vscode-dark") || cl.contains("vscode-high-contrast") && !cl.contains("vscode-high-contrast-light");
+  }
+  return DARK_THEMES.has(themeName);
+}
+
 function setTheme(themeName: ThemeName, saveGlobal = true): void {
   THEMES.forEach((t) => document.body.classList.remove(`theme-${t}`));
   document.body.classList.add(`theme-${themeName}`);
 
   // Sync dark/light class with selected editor theme for hljs colors
-  applyTheme(DARK_THEMES.has(themeName) ? "dark" : "light");
+  applyTheme(isDarkTheme(themeName) ? "dark" : "light");
 
   const select = getThemeSelect();
   if (select) select.value = themeName;
@@ -712,7 +724,7 @@ function setTheme(themeName: ThemeName, saveGlobal = true): void {
 function initTheme(vsCodeTheme: "dark" | "light"): void {
   if (globalThemeReceived) {
     // Ensure dark/light body class matches the saved theme
-    applyTheme(DARK_THEMES.has(globalThemeReceived) ? "dark" : "light");
+    applyTheme(isDarkTheme(globalThemeReceived) ? "dark" : "light");
     return;
   }
 
@@ -1412,8 +1424,50 @@ function updateWordCount(ed: Editor): void {
   }, 500);
 }
 
+// Appearance popover layout controls: each writes its `tuiMarkdown.*` setting;
+// the host's config watcher then sends a fresh `config`, which re-syncs them.
+function syncLayoutControls(message: ConfigMessage): void {
+  document.querySelectorAll<HTMLInputElement>("#appearance-popover [data-setting]").forEach((el) => {
+    const v = (message as unknown as Record<string, unknown>)[el.dataset.setting!];
+    if (el.type === "checkbox") el.checked = v === true;
+    else if (document.activeElement !== el) el.value = typeof v === "number" ? String(v) : "";
+  });
+}
+
+// The metadata bar sits above #main-layout, outside the scroller, so it stays
+// pinned. Moving the node into #editor-container (ahead of #editor) makes it
+// scroll with the text; listeners stay attached because the node is moved, not rebuilt.
+function placeMetadataPanel(scrolls: boolean): void {
+  const panel = document.getElementById("metadata-panel");
+  const container = document.getElementById("editor-container");
+  const mainLayout = document.getElementById("main-layout");
+  if (!panel || !container || !mainLayout) return;
+  if (scrolls && panel.parentElement !== container) {
+    container.insertBefore(panel, document.getElementById("editor"));
+  } else if (!scrolls && panel.parentElement === container) {
+    mainLayout.parentElement?.insertBefore(panel, mainLayout);
+  }
+  panel.classList.toggle("in-scroller", scrolls);
+}
+
+function setupLayoutControls(): void {
+  document.querySelectorAll<HTMLInputElement>("#appearance-popover [data-setting]").forEach((el) => {
+    el.addEventListener("change", () => {
+      const key = el.dataset.setting!;
+      let value: boolean | number | null;
+      if (el.type === "checkbox") value = el.checked;
+      else {
+        const n = el.value.trim() === "" ? NaN : Number(el.value);
+        value = Number.isFinite(n) && n >= 0 ? Math.min(300, Math.round(n)) : null;
+      }
+      vscode.postMessage({ type: "updateSetting", key, value });
+    });
+  });
+}
+
 // Toolbar event handlers
 function setupToolbarHandlers(): void {
+  setupLayoutControls();
   const themeSelect = getThemeSelect();
   themeSelect?.addEventListener("change", (e) => {
     const theme = (e.target as HTMLSelectElement).value as ThemeName;
@@ -1868,6 +1922,20 @@ window.addEventListener("message", async (event) => {
       }
       if (typeof message.autoHideToolbar === "boolean") {
         setupToolbarAutoHide(message.autoHideToolbar);
+      }
+      syncLayoutControls(message);
+      document.body.classList.toggle("no-toc-sidebar", message.showTocSidebar === false);
+      document.body.classList.toggle("no-backlinks-panel", message.showBacklinksPanel === false);
+      setFocusModeDefault(message.focusModeByDefault === true);
+      placeMetadataPanel(message.metadataScrollsWithContent === true);
+      {
+        // Page spacing overrides; null removes the var so editor.css falls back to its default.
+        const rootStyle = document.documentElement.style;
+        const px = (name: string, v: unknown) =>
+          typeof v === "number" ? rootStyle.setProperty(name, `${v}px`) : rootStyle.removeProperty(name);
+        px("--page-margin", message.pageMargin);
+        px("--page-padding-x", message.pagePaddingX);
+        px("--page-padding-top", message.pagePaddingTop);
       }
       if (message.listIndentation && typeof message.listIndentation === "object") {
         const style = message.listIndentation.style === "tab" ? "tab" : "space";

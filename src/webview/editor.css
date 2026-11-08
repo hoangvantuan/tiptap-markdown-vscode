@@ -34,7 +34,7 @@ html, body {
 }
 .tiptap {
   min-height: 100%;
-  padding: 32px 48px 40vh 48px;
+  padding: var(--page-padding-top, 32px) 48px 40vh 48px;
   caret-color: var(--crepe-color-primary);
   font-optical-sizing: auto;
   transition: background-color 0.3s ease, color 0.3s ease;
@@ -467,6 +467,40 @@ body.dark-theme #toolbar {
   color: var(--vscode-editorWidget-foreground, #cccccc);
   border-color: var(--vscode-editorWidget-border, rgba(127, 127, 127, 0.3));
 }
+/* Layout controls (Panels / Spacing rows) */
+.appearance-popover .layout-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.appearance-popover .layout-checks label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.appearance-popover .layout-spacing {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.appearance-popover .layout-spacing label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  opacity: 0.85;
+}
+.appearance-popover .layout-spacing input {
+  width: 100%;
+  padding: 3px 5px;
+  background-color: rgba(127, 127, 127, 0.15);
+  border: 1px solid rgba(127, 127, 127, 0.25);
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+}
 /* Zoom row inside popover — compact trio */
 .appearance-popover .zoom-controls {
   justify-content: flex-start;
@@ -559,7 +593,7 @@ body.dark-theme #toolbar {
   overflow-x: hidden;
   overflow-y: auto;
   position: relative;
-  padding: clamp(6px, 1.5vw, 24px);
+  padding: var(--page-margin, clamp(6px, 1.5vw, 24px));
   background:
     radial-gradient(ellipse 120% 50% at 50% 0%, rgba(var(--accent-rgb, 59, 130, 246), 0.04), transparent),
     var(--canvas-bg, var(--vscode-editor-background, #1e1e1e));
@@ -654,6 +688,15 @@ body.dark-theme #editor-container::before {
   border-bottom: 1px solid var(--vscode-panel-border);
   background: var(--vscode-editor-background);
 }
+/* tuiMarkdown.metadataScrollsWithContent: panel moved inside #editor-container */
+#metadata-panel.in-scroller {
+  position: relative;
+  z-index: 2;
+  border: 1px solid var(--vscode-panel-border, rgba(127, 127, 127, 0.25));
+  border-radius: 6px;
+  max-width: var(--page-max-width, 1280px);
+  margin: 0 auto 8px;
+}
 #metadata-details { margin: 0; }
 #metadata-summary {
   display: flex;
@@ -736,8 +779,8 @@ body.dark-theme #editor-container::before {
   max-width: 1280px;
   margin-left: auto;
   margin-right: auto;
-  padding-left: clamp(24px, 5vw, 80px);
-  padding-right: clamp(24px, 5vw, 80px);
+  padding-left: var(--page-padding-x, clamp(24px, 5vw, 80px));
+  padding-right: var(--page-padding-x, clamp(24px, 5vw, 80px));
 }
 /* Zoom other than 100%, set by scaleEditor in main.ts, which says why it is a
    transform and not CSS zoom. The width is in layout px, chosen so the SCALED
@@ -3001,6 +3044,14 @@ body.dark-theme .backlink-entry-count {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Sidebars turned off by tuiMarkdown.showTocSidebar / showBacklinksPanel */
+body.no-toc-sidebar #toc-sidebar,
+body.no-toc-sidebar #btn-toc,
+body.no-backlinks-panel #backlinks-panel,
+body.no-backlinks-panel #btn-backlinks {
+  display: none !important;
 }
 
 /* ─── Focus Mode ─── */

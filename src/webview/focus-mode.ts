@@ -20,6 +20,12 @@ let currentEditor: Editor | null = null;
 let isFocusMode = false;
 let exitBtnEl: HTMLElement | null = null;
 let toggleBtnEl: HTMLElement | null = null;
+/** `tuiMarkdown.focusModeByDefault`; the `config` message lands before setupFocusMode. */
+let focusModeDefault = false;
+
+export function setFocusModeDefault(value: boolean): void {
+  focusModeDefault = value;
+}
 
 const FOCUS_ICON_SVG = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/></svg>`;
 const EXIT_FOCUS_ICON_SVG = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>`;
@@ -166,7 +172,8 @@ export function setupFocusMode(
 
   // 3. Restore persisted state
   const savedState = vscode.getState();
-  if (savedState?.focusMode) {
+  // A saved per-tab choice wins; a fresh tab follows the setting.
+  if (savedState?.focusMode ?? focusModeDefault) {
     setFocusMode(true, vscode, editor);
   }
 }
