@@ -364,6 +364,7 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
                 <div class="appearance-row">
                   <label class="appearance-label" for="theme-select">Theme</label>
                   <select id="theme-select" aria-label="Editor theme">
+                    <option value="vscode">VS Code (follow color theme)</option>
                     <option value="frame">Frame</option>
                     <option value="frame-dark">Frame Dark</option>
                     <option value="nord">Nord</option>
@@ -383,6 +384,23 @@ export class MarkdownEditorProvider implements vscode.CustomTextEditorProvider {
                 <div class="appearance-row">
                   <label class="appearance-label">Font</label>
                   <div id="font-selector-container"></div>
+                </div>
+                <div class="appearance-row">
+                  <label class="appearance-label">Panels</label>
+                  <div class="layout-checks">
+                    <label><input type="checkbox" id="set-showTocSidebar" data-setting="showTocSidebar"> Contents</label>
+                    <label><input type="checkbox" id="set-showBacklinksPanel" data-setting="showBacklinksPanel"> Backlinks</label>
+                    <label><input type="checkbox" id="set-focusModeByDefault" data-setting="focusModeByDefault"> Focus mode by default</label>
+                    <label><input type="checkbox" data-setting="metadataScrollsWithContent"> Metadata scrolls with page</label>
+                  </div>
+                </div>
+                <div class="appearance-row">
+                  <label class="appearance-label">Spacing</label>
+                  <div class="layout-spacing">
+                    <label title="Space around the page (px)">Margin<input type="number" min="0" max="300" placeholder="auto" data-setting="pageMargin"></label>
+                    <label title="Left/right padding inside the page (px)">Side<input type="number" min="0" max="300" placeholder="auto" data-setting="pagePaddingX"></label>
+                    <label title="Top padding inside the page (px)">Top<input type="number" min="0" max="300" placeholder="auto" data-setting="pagePaddingTop"></label>
+                  </div>
                 </div>
                 <div class="appearance-row">
                   <label class="appearance-label">Export</label>

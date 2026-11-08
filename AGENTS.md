@@ -150,7 +150,8 @@ src/
         ├── paper.css              # Paper (light, warm serif)
         ├── midnight.css           # Midnight (dark, deep navy)
         ├── notion.css             # Notion (light, flat, callout-style alerts)
-        └── notion-dark.css        # Notion Dark (#191919)
+        ├── notion-dark.css        # Notion Dark (#191919)
+        └── vscode.css             # Follows the VS Code color theme via --vscode-* variables
 harness/                            # Dependency-verification harness (see harness/README.md)
 ├── editor.ts                       # Editor factory; its extensions come from src/webview/extension-factory.ts, so it mirrors nothing (#143)
 ├── corpus.ts                       # Corpus enumeration (synthetic fixtures + repo docs)
@@ -197,6 +198,11 @@ Extension provides these settings via `tuiMarkdown.*` namespace:
 - `listIndent` (`"editor"` | `2` | `4` | `"tab"`, default: `"editor"`) - List and code-block indentation. `"editor"` follows `editor.insertSpaces` / `editor.tabSize` resolved for `markdown`
 - `chromiumPath` (string, default: empty) - Explicit Chrome/Edge/Chromium/Brave executable for PDF export; empty means auto-discovery (`chromium-discovery.ts`)
 - `exportPageSize` (string, default: `A4`) - Page size for PDF export
+- `showTocSidebar` / `showBacklinksPanel` (boolean, default: true) - Hide a side panel and its toggle (body class + CSS)
+- `focusModeByDefault` (boolean, default: false) - Fresh tabs open in Focus Mode; a saved per-tab state wins
+- `metadataScrollsWithContent` (boolean, default: false) - Moves `#metadata-panel` into `#editor-container`
+- `pageMargin` / `pagePaddingX` / `pagePaddingTop` (number | null) - CSS vars `--page-*` on `:root`; null keeps the stylesheet default
+- The Appearance popover writes these layout keys through the `updateSetting` message; the host whitelists keys and ranges
 
 The command **Choose Default Editor for Markdown in this Workspace**
 (`tuiMarkdown.useAsDefaultEditor`, `src/host/defaultEditor.ts`) writes

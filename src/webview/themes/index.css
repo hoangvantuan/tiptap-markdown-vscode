@@ -13,6 +13,7 @@
 @import "./midnight.css";
 @import "./notion.css";
 @import "./notion-dark.css";
+@import "./vscode.css";
 
 /* Raw HTML block & inline styles (issue #96) */
 .tiptap .raw-html-block {

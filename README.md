@@ -134,10 +134,19 @@ WYSIWYG export via headless Chromium (`puppeteer-core`). Requires Chrome, Edge, 
 | `tuiMarkdown.chromiumPath` | `""` | Chrome/Chromium path for PDF export |
 | `tuiMarkdown.exportPageSize` | `A4` | Page size for PDF/DOCX export (`A4` or `Letter`) |
 | `tuiMarkdown.headingSizes.h1`–`h6` | `32`–`16` | Heading font sizes (12–72px) |
+| `tuiMarkdown.showTocSidebar` | `true` | Show the Contents sidebar and its toggle |
+| `tuiMarkdown.showBacklinksPanel` | `true` | Show the Backlinks panel and its toggle |
+| `tuiMarkdown.focusModeByDefault` | `false` | Open new tabs in Focus Mode |
+| `tuiMarkdown.metadataScrollsWithContent` | `false` | Metadata bar scrolls with the document instead of staying pinned |
+| `tuiMarkdown.pageMargin` | `null` | Space around the page (px); empty keeps the responsive default |
+| `tuiMarkdown.pagePaddingX` | `null` | Left/right padding inside the page (px) |
+| `tuiMarkdown.pagePaddingTop` | `null` | Top padding inside the page (px) |
+
+The layout settings can also be changed from the Appearance popover (Panels and Spacing rows).
 
 ## Themes
 
-14 built-in themes with curated typography and color palettes:
+14 built-in themes with curated typography and color palettes, plus **VS Code**, which follows your active VS Code color theme:
 
 | Theme | Style | Character |
 |-------|-------|-----------|

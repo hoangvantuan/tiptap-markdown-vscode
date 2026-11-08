@@ -1,0 +1,41 @@
+/* VS Code Theme — follows the user's VS Code color theme through the --vscode-*
+   variables the webview host injects (and updates live on a theme switch).
+   Light/dark for hljs and mermaid is decided in main.ts from body.vscode-dark. */
+.theme-vscode {
+  --accent-primary: var(--vscode-focusBorder, #3b82f6);
+  --border-rgb: 127, 127, 127;
+  --toolbar-fg: var(--vscode-editor-foreground);
+  --canvas-bg: var(--vscode-editor-background);
+  --noise-opacity: 0;
+  --vignette-opacity: 0;
+  --selection-bg: var(--vscode-editor-selectionBackground, rgba(59, 130, 246, 0.3));
+}
+.theme-vscode .tiptap {
+  --crepe-color-background: var(--vscode-editor-background);
+  --crepe-color-on-background: var(--vscode-editor-foreground);
+  --crepe-color-surface: var(--vscode-textCodeBlock-background, var(--vscode-editorWidget-background));
+  --crepe-color-outline: var(--vscode-editorWidget-border, var(--vscode-panel-border, #7f7f7f));
+  --crepe-color-primary: var(--vscode-textLink-foreground, var(--vscode-focusBorder));
+  --crepe-color-inline-code: var(--vscode-textPreformat-foreground, var(--vscode-editor-foreground));
+  --crepe-color-highlight: var(--vscode-editor-findMatchHighlightBackground, rgba(255, 210, 0, 0.3));
+  --crepe-font-default: var(--vscode-font-family, system-ui, sans-serif);
+  --crepe-font-code: var(--vscode-editor-font-family, Menlo, monospace);
+  box-shadow: none !important;
+}
+/* The shared chrome builds its backgrounds from rgb triplets; VS Code colors are hex. */
+.theme-vscode #toolbar,
+.theme-vscode.dark-theme #toolbar {
+  background: var(--vscode-editor-background);
+  border-bottom-color: var(--vscode-editorGroup-border, var(--vscode-panel-border, transparent));
+}
+.theme-vscode #toc-sidebar,
+.theme-vscode.dark-theme #toc-sidebar,
+.theme-vscode #backlinks-panel,
+.theme-vscode.dark-theme #backlinks-panel {
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  color: var(--vscode-sideBar-foreground, var(--vscode-editor-foreground));
+  border-color: var(--vscode-sideBar-border, var(--vscode-panel-border, transparent));
+}
+.theme-vscode #editor-container {
+  background: var(--vscode-editor-background);
+}

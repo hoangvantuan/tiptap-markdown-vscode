@@ -119,6 +119,47 @@
           "default": false,
           "description": "Auto-hide toolbar when typing (show on hover)"
         },
+        "tuiMarkdown.showTocSidebar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Table of Contents sidebar and its toggle button (left side)"
+        },
+        "tuiMarkdown.showBacklinksPanel": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Backlinks panel and its toggle button (right side)"
+        },
+        "tuiMarkdown.focusModeByDefault": {
+          "type": "boolean",
+          "default": false,
+          "description": "Open documents in Focus Mode (full view) by default. A manual toggle in the same editor tab is still remembered."
+        },
+        "tuiMarkdown.metadataScrollsWithContent": {
+          "type": "boolean",
+          "default": false,
+          "description": "Let the Metadata (frontmatter) bar scroll with the document instead of staying pinned above it"
+        },
+        "tuiMarkdown.pageMargin": {
+          "type": ["number", "null"],
+          "default": null,
+          "minimum": 0,
+          "maximum": 300,
+          "description": "Space around the page, in pixels. Leave empty (null) for the built-in default (6-24px depending on width)."
+        },
+        "tuiMarkdown.pagePaddingX": {
+          "type": ["number", "null"],
+          "default": null,
+          "minimum": 0,
+          "maximum": 300,
+          "description": "Left/right padding inside the page, in pixels. Leave empty (null) for the built-in default (24-80px depending on width)."
+        },
+        "tuiMarkdown.pagePaddingTop": {
+          "type": ["number", "null"],
+          "default": null,
+          "minimum": 0,
+          "maximum": 300,
+          "description": "Top padding inside the page, in pixels. Leave empty (null) for the built-in default (32px)."
+        },
         "tuiMarkdown.listIndent": {
           "type": [
             "string",

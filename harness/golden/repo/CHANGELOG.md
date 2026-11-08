@@ -2,6 +2,14 @@
 
 All notable changes to "Tiptap Markdown Editor" (formerly "TUI Markdown Editor") extension.
 
+## \[Unreleased\]
+
+### Added
+
+- **Layout settings for the side panels, page spacing and focus mode.** `tuiMarkdown.showTocSidebar` and `tuiMarkdown.showBacklinksPanel` hide the Contents sidebar and the Backlinks panel along with their toggle buttons. `tuiMarkdown.pageMargin`, `tuiMarkdown.pagePaddingX` and `tuiMarkdown.pagePaddingTop` override the page spacing in px; left empty, the existing responsive defaults apply. `tuiMarkdown.focusModeByDefault` opens new tabs in Focus Mode, and a choice made in a tab is still remembered for that tab. `tuiMarkdown.metadataScrollsWithContent` lets the Metadata bar scroll with the document instead of staying pinned.
+- **The Appearance popover edits these settings.** New Panels and Spacing rows write the `tuiMarkdown.*` values to user settings, and they update when the settings change elsewhere. The host accepts only these keys and value ranges.
+- **"VS Code" theme.** It follows the active VS Code color theme through the webview's `--vscode-*` variables, switches live with it, and takes light/dark for syntax highlighting and mermaid from the workbench.
+
 ## \[3.5.1\] - 2026-10-20
 
 ### Fixed
